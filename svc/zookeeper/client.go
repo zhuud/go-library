@@ -10,6 +10,7 @@ import (
 	"github.com/go-zookeeper/zk"
 	"github.com/pkg/errors"
 	"github.com/zeromicro/go-zero/core/logx"
+	"github.com/zeromicro/go-zero/core/proc"
 	"github.com/zhuud/go-library/svc/conf"
 )
 
@@ -65,14 +66,19 @@ func NewZookeeperClient(servers ...string) (*Client, error) {
 	}
 	client = &Client{conn: zkConn}
 
+	proc.AddShutdownListener(func() {
+		client.Close()
+	})
+
 	return client, nil
 }
 
 func (z *Client) ChildrenW(path string) ([]string, *zk.Stat, <-chan zk.Event, error) {
-	if z.conn == nil {
+	conn := getConn()
+	if conn == nil {
 		return nil, nil, nil, errors.New("zookeeper conn is nil")
 	}
-	w, stat, events, err := z.conn.ChildrenW(path)
+	w, stat, events, err := conn.ChildrenW(path)
 	if z.debugModeRetry(err) {
 		return z.ChildrenW(path)
 	}
@@ -80,10 +86,11 @@ func (z *Client) ChildrenW(path string) ([]string, *zk.Stat, <-chan zk.Event, er
 }
 
 func (z *Client) Get(path string) ([]byte, *zk.Stat, error) {
-	if z.conn == nil {
+	conn := getConn()
+	if conn == nil {
 		return nil, nil, errors.New("zookeeper conn is nil")
 	}
-	get, stat, err := z.conn.Get(path)
+	get, stat, err := conn.Get(path)
 	if z.debugModeRetry(err) {
 		return z.Get(path)
 	}
@@ -91,10 +98,11 @@ func (z *Client) Get(path string) ([]byte, *zk.Stat, error) {
 }
 
 func (z *Client) GetW(path string) ([]byte, *zk.Stat, <-chan zk.Event, error) {
-	if z.conn == nil {
+	conn := getConn()
+	if conn == nil {
 		return nil, nil, nil, errors.New("zookeeper conn is nil")
 	}
-	w, stat, events, err := z.conn.GetW(path)
+	w, stat, events, err := conn.GetW(path)
 	if z.debugModeRetry(err) {
 		return z.GetW(path)
 	}
@@ -102,10 +110,11 @@ func (z *Client) GetW(path string) ([]byte, *zk.Stat, <-chan zk.Event, error) {
 }
 
 func (z *Client) Delete(path string, version int32) error {
-	if z.conn == nil {
+	conn := getConn()
+	if conn == nil {
 		return errors.New("zookeeper conn is nil")
 	}
-	err := z.conn.Delete(path, version)
+	err := conn.Delete(path, version)
 	if z.debugModeRetry(err) {
 		return z.Delete(path, version)
 	}
@@ -113,10 +122,11 @@ func (z *Client) Delete(path string, version int32) error {
 }
 
 func (z *Client) Exists(path string) (bool, *zk.Stat, error) {
-	if z.conn == nil {
+	conn := getConn()
+	if conn == nil {
 		return false, nil, errors.New("zookeeper conn is nil")
 	}
-	exists, stat, err := z.conn.Exists(path)
+	exists, stat, err := conn.Exists(path)
 	if z.debugModeRetry(err) {
 		return z.Exists(path)
 	}
@@ -124,10 +134,11 @@ func (z *Client) Exists(path string) (bool, *zk.Stat, error) {
 }
 
 func (z *Client) Create(path string, data []byte, flag int32, acl []zk.ACL) (string, error) {
-	if z.conn == nil {
+	conn := getConn()
+	if conn == nil {
 		return "", errors.New("zookeeper conn is nil")
 	}
-	create, err := z.conn.Create(path, data, flag, acl)
+	create, err := conn.Create(path, data, flag, acl)
 	if z.debugModeRetry(err) {
 		return z.Create(path, data, flag, acl)
 	}
@@ -135,27 +146,29 @@ func (z *Client) Create(path string, data []byte, flag int32, acl []zk.ACL) (str
 }
 
 func (z *Client) Close() {
-	if z.conn != nil {
-		z.conn.Close()
+	conn := getConn()
+	if conn != nil {
+		conn.Close()
 	}
 }
 
 func (z *Client) State() zk.State {
-	if z.conn != nil {
-		return z.conn.State()
+	conn := getConn()
+	if conn != nil {
+		return conn.State()
 	}
 	return zk.StateUnknown
 }
 
 func (z *Client) debugModeRetry(err error) bool {
+	conn := getConn()
 
 	// 本地开发如果打了断点可能导致连接被中断，在发送下一次请求倩无法感知连接状态的变化，因此在此处针对这一场景进行重试
-	if (errors.Is(err, zk.ErrNoServer) || errors.Is(err, zk.ErrConnectionClosed)) && z.conn.State() != zk.StateHasSession && conf.IsLocal() {
+	if (errors.Is(err, zk.ErrNoServer) || errors.Is(err, zk.ErrConnectionClosed)) && conn.State() != zk.StateHasSession && conf.IsLocal() {
 		b := time.Now()
 		for {
 			time.Sleep(time.Millisecond * 1)
-			z.conn.State()
-			if z.conn.State() == zk.StateHasSession {
+			if conn.State() == zk.StateHasSession {
 				fmt.Printf("zookeeper connect retry(有可能是因为断点导致连接中断), time:%s, error:%v \n", time.Now().Sub(b).String(), err)
 				return true
 			}
