@@ -26,7 +26,7 @@ func init() {
 
 	setReader(newEnvReader())
 
-	_, err := SetUp(Conf{})
+	_, err := SetUp(Conf{FilePath: AppConfPath})
 	if err != nil {
 		fmt.Println(err.Error())
 	}
