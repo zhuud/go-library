@@ -1,7 +1,6 @@
 package conf
 
 import (
-	"flag"
 	"fmt"
 	"sync/atomic"
 
@@ -17,10 +16,9 @@ type (
 )
 
 var (
-	flagConfPath = flag.String("f", "", "the config file")
-	hasSet       uint32
-	options      option
-	reader       = new(basicReader)
+	hasSet  uint32
+	options option
+	reader  = new(basicReader)
 )
 
 func init() {
@@ -28,12 +26,7 @@ func init() {
 
 	setReader(newEnvReader())
 
-	flag.Parse()
-	if flagConfPath != nil && len(*flagConfPath) > 0 {
-		AppConfPath = *flagConfPath
-	}
-
-	_, err := SetUp(Conf{FilePath: AppConfPath})
+	_, err := SetUp(Conf{})
 	if err != nil {
 		fmt.Println(err.Error())
 	}

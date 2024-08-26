@@ -44,7 +44,7 @@ func (r *zookeeperReader) Get(k string, dv ...string) (string, error) {
 
 func (r *zookeeperReader) GetAny(k string, target any) error {
 	if len(k) == 0 {
-		return errors.New("conf.zookeeperReader k empty")
+		return errors.New("confx.zookeeperReader k empty")
 	}
 
 	v, err := r.Get(k)
