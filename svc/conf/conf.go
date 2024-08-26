@@ -5,7 +5,6 @@ import (
 	"fmt"
 	"sync/atomic"
 
-	"github.com/go-zookeeper/zk"
 	"github.com/pkg/errors"
 )
 
@@ -13,13 +12,12 @@ type (
 	// OptionFunc defines the method to customize the logging.
 	OptionFunc func(option *option)
 	option     struct {
-		FilePath      string
-		ZookeeperConn *zk.Conn
+		FilePath string
 	}
 )
 
 var (
-	flagConfPath = flag.String("f", "etc/config.local.yaml", "the config file")
+	flagConfPath = flag.String("f", "", "the config file")
 	hasSet       uint32
 	options      option
 	reader       = new(basicReader)
@@ -81,12 +79,6 @@ func getReader() Reader {
 func WithFile(filePath string) OptionFunc {
 	return func(opts *option) {
 		opts.FilePath = filePath
-	}
-}
-
-func WithZookeeper(conn *zk.Conn) OptionFunc {
-	return func(opts *option) {
-		opts.ZookeeperConn = conn
 	}
 }
 

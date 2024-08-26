@@ -11,9 +11,9 @@ var (
 
 	rootCmd = &cobra.Command{
 		Use:     "run",
-		Short:   "go run main.go [cmd | consumer cmd] [-f config file]",
-		Long:    "go run main.go [cmd | consumer cmd] [-f config file]",
-		Example: "go run main.go -f etc/config.test.yaml | go run main.go cmdxxx -f etc/config.test.yaml | go run main.go consumer consumerxxx -f etc/config.test.yaml",
+		Short:   "go run main.go [-f config file] [cmd | consumer]",
+		Long:    "go run main.go [-f config file] [cmd | consumer]",
+		Example: "go run main.go -f etc/config.test.yaml | go run main.go -f etc/config.test.yaml cmdxxx | go run main.go -f etc/config.test.yaml consumerxxx",
 	}
 )
 

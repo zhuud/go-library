@@ -182,6 +182,7 @@ func waitSession(eventChan <-chan zk.Event, retry int) error {
 		event := <-eventChan
 		switch event.State {
 		case zk.StateHasSession:
+			fmt.Printf("zookeeper connected event:%s %s \n", event.State.String(), event.Server)
 			go func() {
 				//如果因为程序hung住导致zk session过期（debug打断点也会出现类似的状况），zk会有重连的机制，
 				//但是在重连后立即向zk发送任意指令，都会导致zkConn阻塞（原因未知，猜测是重连机制未完全执行完，此时是在往旧连接中发请求），
