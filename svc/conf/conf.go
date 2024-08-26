@@ -1,6 +1,7 @@
 package conf
 
 import (
+	"flag"
 	"fmt"
 	"sync/atomic"
 
@@ -9,7 +10,6 @@ import (
 )
 
 type (
-
 	// OptionFunc defines the method to customize the logging.
 	OptionFunc func(option *option)
 	option     struct {
@@ -19,31 +19,38 @@ type (
 )
 
 var (
-	hasSet  uint32
-	options option
-	reader  = new(basicReader)
+	flagConfPath = flag.String("f", "etc/config.local.yaml", "the config file")
+	hasSet       uint32
+	options      option
+	reader       = new(basicReader)
 )
 
 func init() {
 	_init()
-	_, err := SetUp(Conf{})
+
+	setReader(newEnvReader())
+
+	flag.Parse()
+	if flagConfPath != nil && len(*flagConfPath) > 0 {
+		AppConfPath = *flagConfPath
+	}
+
+	_, err := SetUp(Conf{FilePath: AppConfPath})
 	if err != nil {
 		fmt.Println(err.Error())
 	}
 }
 
 func SetUp(c Conf) (Reader, error) {
-	r := setReader(newEnvReader())
 	tfr, err := newFileReader(c)
 	if err != nil {
-		err = errors.Wrap(err, "conf.SetUp.newFileReader error")
-	} else {
-		r = AppendReader(tfr)
-		if len(c.FilePath) > 0 {
-			atomic.StoreUint32(&hasSet, 1)
-		}
+		return reader.Load(), errors.Wrap(err, "conf.SetUp.newFileReader error")
 	}
-	return r, err
+
+	if len(c.FilePath) > 0 {
+		atomic.StoreUint32(&hasSet, 1)
+	}
+	return AppendReader(tfr), nil
 }
 
 func AppendReader(r Reader) Reader {

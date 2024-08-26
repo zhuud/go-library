@@ -9,17 +9,17 @@ import (
 // 部署配置的一些环境变量
 
 var (
-	PodIp         string   // 容器ip
-	PodName       string   // 容器名
-	Env           string   // 部署的环境：local/test/pre/prod
-	AppZone       string   // 部署所在分区：bj2c/bj2g
-	AppBuildNum   string   // 编译版本号
-	AppTestNum    string   // 测试环境分区
-	PprofPort     int      // pprof端口
-	HttpPort      int      //http端口
-	ZkAddr        []string // zk地址
-	LogPath       string   //日志目录
-	AppConfigPath string   // 配置目录
+	PodIp       string   // 容器ip
+	PodName     string   // 容器名
+	Env         string   // 部署的环境：local/test/pre/prod
+	AppZone     string   // 部署所在分区：bj2c/bj2g
+	AppBuildNum string   // 编译版本号
+	AppTestNum  string   // 测试环境分区
+	PprofPort   int      // pprof端口
+	HttpPort    int      //http端口
+	ZkAddr      []string // zk地址
+	AppLogPath  string   //日志目录
+	AppConfPath string   // 配置目录
 )
 
 const (
@@ -28,6 +28,10 @@ const (
 	EnvTest  = string(`test`)
 	EnvLocal = string(`local`)
 )
+
+func init() {
+	_init()
+}
 
 func _init() {
 	PodIp = getString(`POD_IP`)
@@ -50,8 +54,8 @@ func _init() {
 	if len(zkAddrTmp) > 0 {
 		ZkAddr = strings.Split(zkAddrTmp, ",")
 	}
-	LogPath = getString(`APP_LOG_PATH`)
-	AppConfigPath = getString(`APP_CONFIG_PATH`)
+	AppLogPath = getString(`APP_LOG_PATH`)
+	AppConfPath = getString(`APP_CONFIG_PATH`)
 }
 
 func IsLocal() bool {

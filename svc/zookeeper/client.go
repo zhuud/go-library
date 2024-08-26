@@ -217,5 +217,5 @@ type loggerWrapper struct {
 }
 
 func (l *loggerWrapper) Printf(s string, i ...any) {
-	logx.Infof("go-library: zookeeper: %s = %v", s, i)
+	logx.Infof("zookeeper: %s = %v", s, i)
 }

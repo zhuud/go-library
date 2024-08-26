@@ -4,7 +4,6 @@ import (
 	"encoding/json"
 	"fmt"
 	"github.com/mitchellh/mapstructure"
-
 	"github.com/pkg/errors"
 	"github.com/spf13/viper"
 	"github.com/zeromicro/go-zero/core/conf"
@@ -27,11 +26,7 @@ func newFileReader(c Conf) (Reader, error) {
 	handleOptions(opts)
 
 	if len(options.FilePath) == 0 {
-		if len(AppConfigPath) > 0 {
-			options.FilePath = AppConfigPath
-		} else {
-			options.FilePath = fmt.Sprintf(`%s/etc/config.%s.yaml`, internal.WorkingDir(), Env)
-		}
+		options.FilePath = fmt.Sprintf(`%s/etc/config.%s.yaml`, internal.WorkingDir(), Env)
 	}
 	viper.SetConfigFile(options.FilePath)
 	err := viper.ReadInConfig()
