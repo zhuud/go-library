@@ -2,7 +2,6 @@ package zookeeper
 
 import (
 	"fmt"
-	"strings"
 	"sync"
 	"sync/atomic"
 	"time"
@@ -42,16 +41,12 @@ func NewZookeeperClient(servers ...string) (*Client, error) {
 	mu.Lock()
 	defer mu.Unlock()
 
+	var err error
 	if len(servers) == 0 {
-		if envServers, _ := conf.Get("ZK_ADDR"); len(envServers) > 0 {
-			servers = strings.Split(envServers, ",")
+		servers, err = getServers()
+		if err != nil {
+			return nil, err
 		}
-	}
-	if len(servers) == 0 {
-		_ = conf.GetUnmarshal("ZkAddr", &servers)
-	}
-	if len(servers) == 0 {
-		return client, errors.New("zookeeper.NewZookeeperClient not set address, please set env ZK_ADDR or config ZkAddr")
 	}
 
 	zkConn, eventChan, err := zk.Connect(servers, defaultTimeOut,
