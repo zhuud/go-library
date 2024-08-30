@@ -9,6 +9,10 @@ import (
 type envReader struct {
 }
 
+var (
+	er *envReader
+)
+
 // env
 func newEnvReader() Reader {
 	if er != nil {

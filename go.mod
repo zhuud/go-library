@@ -6,6 +6,7 @@ require (
 	github.com/cornelk/hashmap v1.0.8
 	github.com/go-zookeeper/zk v1.0.4
 	github.com/google/uuid v1.6.0
+	github.com/larksuite/oapi-sdk-go/v3 v3.3.2
 	github.com/mitchellh/mapstructure v1.5.0
 	github.com/pkg/errors v0.9.1
 	github.com/segmentio/kafka-go v0.4.47

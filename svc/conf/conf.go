@@ -7,18 +7,9 @@ import (
 	"github.com/pkg/errors"
 )
 
-type (
-	// OptionFunc defines the method to customize the logging.
-	OptionFunc func(option *option)
-	option     struct {
-		FilePath string
-	}
-)
-
 var (
-	hasSet  uint32
-	options option
-	reader  = new(basicReader)
+	hasSet uint32
+	reader = new(basicReader)
 )
 
 func init() {
@@ -26,28 +17,29 @@ func init() {
 
 	setReader(newEnvReader())
 
-	_, err := SetUp(Conf{FilePath: AppConfPath})
+	err := SetUp(Conf{FilePath: AppConfPath})
 	if err != nil {
 		fmt.Println(err.Error())
 	}
 }
 
-func SetUp(c Conf) (Reader, error) {
-	tfr, err := newFileReader(c)
+func SetUp(c Conf) error {
+	tfr, err := newFileReader(WithFile(c.FilePath))
 	if err != nil {
-		return reader.Load(), errors.Wrap(err, "conf.SetUp.newFileReader error")
+		return errors.Wrap(err, "conf.SetUp.newFileReader error")
 	}
 
 	if len(c.FilePath) > 0 {
 		atomic.StoreUint32(&hasSet, 1)
 	}
-	return AppendReader(tfr), nil
+	AppendReader(tfr)
+	return nil
 }
 
-func AppendReader(r Reader) Reader {
+func AppendReader(r Reader) {
 	or := reader.Load()
 	if or == nil {
-		return setReader(r)
+		setReader(r)
 	} else {
 		ocr, ok := or.(*comboReader)
 		if ok {
@@ -57,28 +49,16 @@ func AppendReader(r Reader) Reader {
 				readers: []Reader{r, or},
 			}
 		}
-		return setReader(ocr)
+		setReader(ocr)
 	}
 }
 
-func setReader(r Reader) Reader {
-	return reader.Store(r)
+func setReader(r Reader) {
+	reader.Store(r)
 }
 
 func getReader() Reader {
 	return reader.Load()
-}
-
-func WithFile(filePath string) OptionFunc {
-	return func(opts *option) {
-		opts.FilePath = filePath
-	}
-}
-
-func handleOptions(opts []OptionFunc) {
-	for _, opt := range opts {
-		opt(&options)
-	}
 }
 
 func Get(k string, dv ...string) (string, error) {

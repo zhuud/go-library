@@ -3,6 +3,7 @@ package conf
 import (
 	"encoding/json"
 	"fmt"
+
 	"github.com/mitchellh/mapstructure"
 	"github.com/pkg/errors"
 	"github.com/spf13/viper"
@@ -10,25 +11,38 @@ import (
 	"github.com/zhuud/go-library/svc/conf/internal"
 )
 
-type fileReader struct {
-	handler *viper.Viper
-}
+type (
+	// FileOptionFunc defines the method to customize the logging.
+	FileOptionFunc func(option *fileOption)
+	fileOption     struct {
+		FilePath string
+	}
+
+	fileReader struct {
+		handler *viper.Viper
+	}
+)
+
+var (
+	fileOptions fileOption
+	fr          *fileReader
+)
 
 // file
-func newFileReader(c Conf) (Reader, error) {
+func newFileReader(opts ...FileOptionFunc) (Reader, error) {
 	if fr != nil {
 		return fr, nil
 	}
 	rmu.Lock()
 	defer rmu.Unlock()
 
-	opts := append([]OptionFunc{}, WithFile(c.FilePath))
 	handleOptions(opts)
 
-	if len(options.FilePath) == 0 {
-		options.FilePath = fmt.Sprintf(`%s/etc/config.%s.yaml`, internal.WorkingDir(), Env)
+	if len(fileOptions.FilePath) == 0 {
+		fileOptions.FilePath = fmt.Sprintf(`%s/etc/config.%s.yaml`, internal.WorkingDir(), Env)
 	}
-	viper.SetConfigFile(options.FilePath)
+
+	viper.SetConfigFile(fileOptions.FilePath)
 	err := viper.ReadInConfig()
 	if err != nil {
 		return nil, err
@@ -37,6 +51,18 @@ func newFileReader(c Conf) (Reader, error) {
 	return &fileReader{
 		handler: viper.GetViper(),
 	}, nil
+}
+
+func handleOptions(opts []FileOptionFunc) {
+	for _, opt := range opts {
+		opt(&fileOptions)
+	}
+}
+
+func WithFile(filePath string) FileOptionFunc {
+	return func(opts *fileOption) {
+		opts.FilePath = filePath
+	}
 }
 
 func (r *fileReader) Get(k string, dv ...string) (string, error) {
@@ -49,7 +75,7 @@ func (r *fileReader) Get(k string, dv ...string) (string, error) {
 
 func (r *fileReader) GetAny(k string, target any) error {
 	if len(k) == 0 {
-		err := conf.Load(options.FilePath, target)
+		err := conf.Load(fileOptions.FilePath, target)
 		return errors.Wrap(err, "conf.fileReader.Load error")
 	}
 

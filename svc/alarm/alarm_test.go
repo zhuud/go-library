@@ -1,0 +1,21 @@
+package alarm
+
+import (
+	"encoding/json"
+	"fmt"
+	"testing"
+
+	"github.com/zeromicro/go-zero/core/proc"
+)
+
+func Test_Send(t *testing.T) {
+	tt, _ := json.Marshal(LarkMessage{})
+	AppendSender(newLarkSender())
+	err := Send(LarkMessage{
+		ReceiveIdType: "chat_id",
+		ReceiveIdId:   "oc_060d34dd3886beba4297817ff851c05f",
+		Content:       fmt.Sprintf("hhh \n : %v", string(tt)),
+	})
+	proc.Shutdown()
+	fmt.Println(err)
+}
