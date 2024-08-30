@@ -23,8 +23,10 @@ type (
 	}
 
 	larkConfig struct {
-		FSAppId     string
-		FSAppSecret string
+		FSAppId         string
+		FSAppSecret     string
+		FsReceiveIdType string
+		FsReceiveId     string
 	}
 	larkSender struct {
 		client *lark.Client
@@ -32,6 +34,7 @@ type (
 )
 
 var (
+	lc larkConfig
 	ls *larkSender
 )
 
@@ -46,13 +49,14 @@ func newLarkSender() Sender {
 	if conf.IsProd() {
 		level = larkcore.LogLevelError
 	}
-	c := larkConfig{}
-	err := conf.GetUnmarshal("Alarm", &c)
+
+	err := conf.GetUnmarshal("Alarm", &lc)
 	if err != nil {
-		logx.Errorf("")
+		logx.Errorf("alarm.newLarkSender config doesn't match error: %v", err)
+		return nil
 	}
 
-	client := lark.NewClient(c.FSAppId, c.FSAppSecret,
+	client := lark.NewClient(lc.FSAppId, lc.FSAppSecret,
 		lark.WithReqTimeout(time.Second*5),
 		lark.WithLogLevel(level),
 	)
@@ -67,6 +71,12 @@ func (s *larkSender) Send(data any) error {
 	msg, ok := data.(LarkMessage)
 	if !ok {
 		return errors.New(fmt.Sprintf("alarm.larkSender.Send data doesn't match data: %v", data))
+	}
+	if len(msg.ReceiveIdType) == 0 {
+		msg.ReceiveIdType = lc.FsReceiveIdType
+	}
+	if len(msg.ReceiveIdId) == 0 {
+		msg.ReceiveIdId = lc.FsReceiveId
 	}
 
 	content, _ := json.Marshal(map[string]string{"text": msg.Content})
