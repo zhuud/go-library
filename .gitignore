@@ -13,6 +13,7 @@
 !*.go
 !go.sum
 !go.mod
+!*.lua
 
 !README.md
 !LICENSE

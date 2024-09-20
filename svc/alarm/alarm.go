@@ -50,6 +50,10 @@ func SetUp(opts ...OptionFunc) *Alarm {
 
 		alarm.executor = executors.NewBulkExecutor(func(tasks []any) {
 			for _, task := range tasks {
+				if getSender() == nil {
+					logx.Errorf("alarm.getSender is nil, default config not set")
+					return
+				}
 				if err := getSender().Send(task); err != nil {
 					logx.Errorf("alarm.Send task data: %v, error: %v", task, err)
 				}

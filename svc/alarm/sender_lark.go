@@ -16,10 +16,10 @@ import (
 
 type (
 	LarkMessage struct {
-		ReceiveIdType string
-		ReceiveIdId   string
-		MessageType   string
-		Content       string
+		ReceiveType string
+		ReceiveId   string
+		MessageType string
+		Content     string
 	}
 
 	larkConfig struct {
@@ -52,7 +52,7 @@ func newLarkSender() Sender {
 
 	err := conf.GetUnmarshal("Alarm", &lc)
 	if err != nil {
-		logx.Errorf("alarm.newLarkSender config doesn't match error: %v", err)
+		logx.Errorf("alarm.newLarkSender config cannot match error: %v", err)
 		return nil
 	}
 
@@ -70,22 +70,22 @@ func (s *larkSender) Send(data any) error {
 
 	msg, ok := data.(LarkMessage)
 	if !ok {
-		return errors.New(fmt.Sprintf("alarm.larkSender.Send data doesn't match data: %v", data))
+		return errors.New(fmt.Sprintf("alarm.larkSender.Send data cannot match data: %v", data))
 	}
-	if len(msg.ReceiveIdType) == 0 {
-		msg.ReceiveIdType = lc.FsReceiveIdType
+	if len(msg.ReceiveType) == 0 {
+		msg.ReceiveType = lc.FsReceiveIdType
 	}
-	if len(msg.ReceiveIdId) == 0 {
-		msg.ReceiveIdId = lc.FsReceiveId
+	if len(msg.ReceiveId) == 0 {
+		msg.ReceiveId = lc.FsReceiveId
 	}
 
 	content, _ := json.Marshal(map[string]string{"text": msg.Content})
 	resp, err := s.client.Im.Message.Create(context.Background(),
 		larkim.NewCreateMessageReqBuilder().
-			ReceiveIdType(msg.ReceiveIdType).
+			ReceiveIdType(msg.ReceiveType).
 			Body(
 				larkim.NewCreateMessageReqBodyBuilder().
-					ReceiveId(msg.ReceiveIdId).
+					ReceiveId(msg.ReceiveId).
 					MsgType("text").
 					Content(string(content)).
 					Build(),
