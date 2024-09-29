@@ -13,7 +13,7 @@ func Test_Send(t *testing.T) {
 	AppendSender(newLarkSender())
 	err := Send(LarkMessage{
 		ReceiveType: "chat_id",
-		ReceiveId:   "oc_060d34dd3886beba4297817ff851c05f",
+		ReceiveId:   "oc_53b66a251e2a89ed74b4be3098262af5",
 		Content:     fmt.Sprintf("hhh \n : %v", string(tt)),
 	})
 	proc.Shutdown()

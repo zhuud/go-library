@@ -4,6 +4,7 @@ import (
 	"log"
 
 	"github.com/spf13/cobra"
+	"github.com/zeromicro/go-zero/core/proc"
 )
 
 var (
@@ -22,6 +23,7 @@ func init() {
 }
 
 func Run() {
+	defer proc.Shutdown()
 	if err := rootCmd.Execute(); err != nil {
 		log.Fatalf("cmd.Run error: %v", err)
 	}
