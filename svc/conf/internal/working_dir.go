@@ -18,7 +18,7 @@ func WorkingDir() string {
 			wd, _ := filepath.Abs(workingDir)
 			log.Printf("conf file search wd: %s", wd)
 			for len(wd) > 1 {
-				configFile := wd + `/etc/config.yaml`
+				configFile := wd + `/etc/config.local.yaml`
 				_, err := os.Stat(configFile)
 				if !os.IsNotExist(err) {
 					log.Printf("conf file auto: %s", configFile)
