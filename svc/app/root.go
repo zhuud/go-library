@@ -1,6 +1,7 @@
 package app
 
 import (
+	"flag"
 	"log"
 
 	"github.com/spf13/cobra"
@@ -23,6 +24,7 @@ func init() {
 }
 
 func Run() {
+	flag.Parse()
 	defer proc.Shutdown()
 	if err := rootCmd.Execute(); err != nil {
 		log.Fatalf("cmd.Run error: %v", err)

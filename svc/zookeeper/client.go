@@ -2,6 +2,7 @@ package zookeeper
 
 import (
 	"fmt"
+	"log"
 	"sync"
 	"sync/atomic"
 	"time"
@@ -31,6 +32,14 @@ func RegisterAfterConnected(handler func()) {
 	mu.Lock()
 	defer mu.Unlock()
 	afterConnectedFunc = append(afterConnectedFunc, handler)
+}
+
+func MustNewZookeeperClient(servers ...string) *Client {
+	c, err := NewZookeeperClient(servers...)
+	if err != nil {
+		log.Fatalf("NewZookeeperClient error: %v", err)
+	}
+	return c
 }
 
 func NewZookeeperClient(servers ...string) (*Client, error) {
