@@ -1,7 +1,7 @@
 package conf
 
 import (
-	"fmt"
+	"log"
 	"sync/atomic"
 
 	"github.com/pkg/errors"
@@ -14,12 +14,13 @@ var (
 
 func init() {
 	_init()
-
 	setReader(newEnvReader())
+}
 
-	err := SetUp(Conf{FilePath: AppConfPath})
+func MustSetUp(c Conf) {
+	err := SetUp(c)
 	if err != nil {
-		fmt.Println(err.Error())
+		log.Fatalf("config file path not set, error: %v", err)
 	}
 }
 
