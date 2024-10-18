@@ -2,13 +2,11 @@ package conf
 
 import (
 	"log"
-	"sync/atomic"
 
 	"github.com/pkg/errors"
 )
 
 var (
-	hasSet uint32
 	reader = new(basicReader)
 )
 
@@ -30,9 +28,6 @@ func SetUp(c Conf) error {
 		return errors.Wrap(err, "conf.SetUp.newFileReader error")
 	}
 
-	if len(c.FilePath) > 0 {
-		atomic.StoreUint32(&hasSet, 1)
-	}
 	AppendReader(tfr)
 	return nil
 }
