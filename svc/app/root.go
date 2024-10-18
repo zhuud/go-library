@@ -8,8 +8,6 @@ import (
 )
 
 var (
-	ConfPath string
-
 	rootCmd = &cobra.Command{
 		Use:     "run",
 		Short:   "go run main.go [-f config file] [cmd | consumer]",
@@ -17,10 +15,6 @@ var (
 		Example: "go run main.go -f etc/config.test.yaml | go run main.go -f etc/config.test.yaml cmdxxx | go run main.go -f etc/config.test.yaml consumerxxx",
 	}
 )
-
-func init() {
-	ConfPath = *rootCmd.PersistentFlags().StringP("config", "f", "", "the config file")
-}
 
 func Run() {
 	defer proc.Shutdown()
