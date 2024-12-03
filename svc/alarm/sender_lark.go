@@ -23,8 +23,8 @@ type (
 	}
 
 	larkConfig struct {
-		FSAppId         string
-		FSAppSecret     string
+		FsAppId         string
+		FsAppSecret     string
 		FsReceiveIdType string
 		FsReceiveId     string
 	}
@@ -56,7 +56,7 @@ func newLarkSender() Sender {
 		return nil
 	}
 
-	client := lark.NewClient(lc.FSAppId, lc.FSAppSecret,
+	client := lark.NewClient(lc.FsAppId, lc.FsAppSecret,
 		lark.WithReqTimeout(time.Second*5),
 		lark.WithLogLevel(level),
 	)
