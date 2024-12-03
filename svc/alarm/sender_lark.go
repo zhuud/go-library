@@ -50,7 +50,7 @@ func newLarkSender() Sender {
 		level = larkcore.LogLevelError
 	}
 
-	err := conf.GetUnmarshal("Alarm", &lc)
+	err := conf.GetUnmarshal(fmt.Sprintf("/qconf/web-config/%s", "alarm_wechat"), &lc)
 	if err != nil {
 		logx.Errorf("alarm.newLarkSender config cannot match error: %v", err)
 		return nil
