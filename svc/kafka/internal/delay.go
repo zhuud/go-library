@@ -15,7 +15,8 @@ import (
 )
 
 const (
-	queueKey          = "%s:kafka:delay:queue:%d:%s"
+	// 操作key要在同一节点上 {}, key要保存到那个节点上时,是根据'{}它里面的值来计算
+	queueKey          = "{kafka:delay:queue}:%s:%d:%s"
 	delayQueueName    = "delayed"
 	reservedQueueName = "reserved"
 )
