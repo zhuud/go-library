@@ -1,7 +1,7 @@
 //go:build !nps
 // +build !nps
 
-package server
+package internal
 
 import (
 	"errors"
@@ -11,7 +11,7 @@ import (
 	"github.com/zhuud/go-library/svc/conf"
 )
 
-func getRegisterAddr() (string, error) {
+func GetRegisterAddr() (string, error) {
 	k8sip, _ := conf.Get("K8S_HOST_IP")
 	if len(k8sip) > 0 {
 		return fmt.Sprintf("%s:%d", k8sip, conf.PprofPort), nil
@@ -29,5 +29,5 @@ func getRegisterAddr() (string, error) {
 			}
 		}
 	}
-	return "", errors.New("server.getRegisterAddr cannot get ip")
+	return "", errors.New("server.GetRegisterAddr cannot get ip")
 }

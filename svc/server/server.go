@@ -3,6 +3,7 @@ package server
 import (
 	"errors"
 	"fmt"
+	"github.com/zhuud/go-library/svc/server/internal"
 	"log"
 	"time"
 
@@ -32,7 +33,7 @@ func RegisterZk() error {
 	if err != nil || len(appName) == 0 {
 		return errors.New(fmt.Sprintf("server.registerZk.getAppName error: %v", err))
 	}
-	registerAddr, err := getRegisterAddr()
+	registerAddr, err := internal.GetRegisterAddr()
 	if err != nil || len(registerAddr) == 0 {
 		return errors.New(fmt.Sprintf("server.registerZk.getRegisterAddr error: %v", err))
 	}

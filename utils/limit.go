@@ -51,7 +51,7 @@ func CheckTicket(r *redis.Redis, from string, biz string, ticket string) (bool, 
 // CheckFreq 频次校验通用  业务校验使用 高并发不支持
 func CheckFreq(r *redis.Redis, optionList []FrequencyOption) (bool, error) {
 	if len(optionList) == 0 {
-		return false, errors.New("empty option")
+		return true, nil
 	}
 	for _, option := range optionList {
 		flag, err := checkFreq(r, option.Key, option.Cnt)
@@ -67,7 +67,7 @@ func CheckFreq(r *redis.Redis, optionList []FrequencyOption) (bool, error) {
 
 func SetFreq(r *redis.Redis, optionList []FrequencyOption) (bool, error) {
 	if len(optionList) == 0 {
-		return false, errors.New("empty option")
+		return true, nil
 	}
 	for _, option := range optionList {
 		_, err := setFreq(r, option.Key, option.Second)

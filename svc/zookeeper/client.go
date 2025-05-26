@@ -2,6 +2,7 @@ package zookeeper
 
 import (
 	"fmt"
+	"github.com/zhuud/go-library/svc/zookeeper/intenal"
 	"log"
 	"sync"
 	"sync/atomic"
@@ -52,7 +53,7 @@ func NewZookeeperClient(servers ...string) (*Client, error) {
 
 	var err error
 	if len(servers) == 0 {
-		servers, err = GetServers()
+		servers, err = intenal.GetServers()
 		if err != nil {
 			return nil, err
 		}
