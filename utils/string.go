@@ -3,6 +3,7 @@ package utils
 import (
 	"fmt"
 	"math/rand"
+	"regexp"
 	"strconv"
 	"strings"
 	"time"
@@ -14,10 +15,11 @@ import (
 // 	AddSlashes(str string) string ：escapes special characters in the given string.
 //	StripSlashes(str string) string ：removes escaped characters from the given string.
 //	Substr(str string, start int, length int) string ：returns a substring of the given string starting at the specified position and with the specified length.
+//	RemoveWhitespace(str string) string ：removes all whitespace characters and common HTML whitespace entities from the given string.
+// 	CastSliceStrToSliceInt(strList []string) []int ：converts a slice of strings to a slice of integers.
 //	GenRandomStr(n int) string ：generates a random alphanumeric string of the specified length.
 //	GenRandomNumStr(n int) string ：generates a random numeric string of the specified length.
 //	UniqId(prefix string) string：generates a unique ID prefixed with a specified string.
-// 	CastSliceStrToSliceInt(strs []string) []int ：converts a slice of strings to a slice of integers.
 
 // AddSlashes 转义
 func AddSlashes(str string) string {
@@ -53,7 +55,6 @@ func StripSlashes(str string) string {
 
 // Substr 截取字符
 func Substr(str string, start int, length int) string {
-
 	runes := []rune(str)
 	strLen := utf8.RuneCountInString(str)
 
@@ -75,6 +76,45 @@ func Substr(str string, start int, length int) string {
 
 	end := start + length
 	return string(runes[start:end])
+}
+
+var (
+	whitespaceRegexp = regexp.MustCompile(`\s+`)
+	htmlEntities     = []string{"&nbsp;", "&amp;"}
+)
+
+// RemoveWhitespace 高性能去除所有空白字符和常见 HTML 空白实体
+func RemoveWhitespace(str string) string {
+	// 去除所有空白字符
+	str = whitespaceRegexp.ReplaceAllString(str, "")
+
+	// 去除常见 HTML 空白实体
+	for _, entity := range htmlEntities {
+		str = strings.ReplaceAll(str, entity, "")
+	}
+	return str
+}
+
+// CastSliceStrToSliceInt 将字符串切片转换为整数切片
+func CastSliceStrToSliceInt(strList []string) []int {
+	ret := make([]int, 0, len(strList))
+	for _, str := range strList {
+		if str == "" {
+			ret = append(ret, 0)
+			continue
+		}
+		n := 0
+		// 只保留数字前缀，忽略非数字部分
+		for i := 0; i < len(str); i++ {
+			if str[i] < '0' || str[i] > '9' {
+				break
+			}
+			// 字符数字的 ASCII 减去 '0' 的 ASCII，得到数字
+			n = n*10 + int(str[i]-'0')
+		}
+		ret = append(ret, n)
+	}
+	return ret
 }
 
 // GenRandomStr 生成随机字符串
@@ -115,26 +155,4 @@ func GenRandomNumStr(n int) string {
 // GenUniqId 生成唯一字符串
 func GenUniqId() string {
 	return uuid.NewString()
-}
-
-// CastSliceStrToSliceInt 将字符串切片转换为整数切片
-func CastSliceStrToSliceInt(strs []string) []int {
-	ret := make([]int, 0, len(strs))
-	for _, str := range strs {
-		if str == "" {
-			ret = append(ret, 0)
-			continue
-		}
-		n := 0
-		// 只保留数字前缀，忽略非数字部分
-		for i := 0; i < len(str); i++ {
-			if str[i] < '0' || str[i] > '9' {
-				break
-			}
-			// 字符数字的 ASCII 减去 '0' 的 ASCII，得到数字
-			n = n*10 + int(str[i]-'0')
-		}
-		ret = append(ret, n)
-	}
-	return ret
 }
