@@ -1,15 +1,46 @@
 package utils
 
 import (
+	"context"
 	"errors"
 	"fmt"
 
-	"github.com/spf13/cast"
-	"github.com/zeromicro/go-zero/core/logx"
 	"github.com/zeromicro/go-zero/core/stores/redis"
 )
 
-var onceTicketKey = "lib:once:ticket:string:%s:%s"
+var (
+	onceTicketKey    = "lib:once:ticket:string:%s:%s"
+	ErrTicketInvalid = errors.New("ticket invalid or already used")
+)
+
+// SetTicket 一次性ticket通用
+func SetTicket(ctx context.Context, r *redis.Redis, from, biz, ticket string, expireSec int) (string, error) {
+	_, err := r.SetnxExCtx(ctx, GetCacheKey(onceTicketKey, from, biz), ticket, expireSec)
+	if err != nil {
+		return ticket, fmt.Errorf("utils.SetTicket.SetnxEx error: %w", err)
+	}
+	return ticket, nil
+}
+
+// CheckTicket 校验并删除一次性ticket，原子操作，幂等安全。
+// 返回 nil 表示校验通过，ErrTicketInvalid 表示无效或已用过，其它error为系统异常。
+func CheckTicket(ctx context.Context, r *redis.Redis, from, biz, ticket string) error {
+	key := GetCacheKey(onceTicketKey, from, biz)
+	script := `
+if redis.call('get', KEYS[1]) == ARGV[1] then
+    return redis.call('del', KEYS[1])
+else
+    return 0
+end`
+	res, err := r.EvalCtx(ctx, script, []string{key}, ticket)
+	if err != nil {
+		return fmt.Errorf("utils.CheckTicket.Eval error: %w", err)
+	}
+	if res == int64(1) {
+		return nil
+	}
+	return ErrTicketInvalid
+}
 
 type FrequencyOption struct {
 	Key    string `json:"key"`
@@ -18,102 +49,72 @@ type FrequencyOption struct {
 	Msg    string `json:"msg"`
 }
 
-func SetOnceTicketKey(key string) {
-	onceTicketKey = key
-}
-
-// SetTicket 一次性ticket通用
-func SetTicket(r *redis.Redis, from string, biz string, second int, ticket string) (string, error) {
-	_, err := r.SetnxEx(GetCacheKey(onceTicketKey, from, biz), ticket, second)
-	return ticket, err
-}
-
-func CheckTicket(r *redis.Redis, from string, biz string, ticket string) (bool, error) {
-	key := GetCacheKey(onceTicketKey, from, biz)
-	val, err := r.Get(key)
-	if err != nil {
-		return false, err
-	}
-	if len(val) == 0 {
-		return false, errors.New("CheckTicket failed")
-	}
-	if ticket != `` && val != ticket {
-		return false, errors.New("CheckTicket error")
-	}
-	_, err = r.Del(key)
-	if err != nil {
-		return false, errors.New(fmt.Sprintf("CheckTicket.DelCtx error %v", err))
-	}
-
-	return true, nil
-}
-
-// CheckFreq 频次校验通用  业务校验使用 高并发不支持
-func CheckFreq(r *redis.Redis, optionList []FrequencyOption) (bool, error) {
+// CheckFreq 频次校验通用（支持高并发，Lua原子操作）
+// “降级”，只拦截频控，可以用 if !ok { return err }
+// “不降级”，redis异常或者拦截频控，可以用 if err != nil { return err }
+func CheckFreq(ctx context.Context, r *redis.Redis, optionList []FrequencyOption) (bool, error) {
 	if len(optionList) == 0 {
 		return true, nil
 	}
 	for _, option := range optionList {
-		flag, err := checkFreq(r, option.Key, option.Cnt)
+		ok, err := checkFreq(ctx, r, option.Key, option.Cnt)
 		if err != nil {
-			return false, err
+			// 错误降级，不影响主流程
+			return true, err
 		}
-		if flag == false {
+		if !ok {
 			return false, errors.New(option.Msg)
 		}
 	}
 	return true, nil
 }
 
-func SetFreq(r *redis.Redis, optionList []FrequencyOption) (bool, error) {
+// SetFreq 频次自增+首次设置过期（支持高并发，Lua原子操作）
+func SetFreq(ctx context.Context, r *redis.Redis, optionList []FrequencyOption) (bool, error) {
 	if len(optionList) == 0 {
 		return true, nil
 	}
 	for _, option := range optionList {
-		_, err := setFreq(r, option.Key, option.Second)
+		_, err := setFreq(ctx, r, option.Key, option.Second)
 		if err != nil {
-			return false, err
+			// 错误降级，不影响主流程
+			return true, err
 		}
 	}
 	return true, nil
 }
 
-// TODO lua 脚本原子操作
-func checkFreq(r *redis.Redis, key string, cnt int) (bool, error) {
-	val, err := r.Get(key)
-	if err != nil && !errors.Is(err, redis.Nil) {
-		return false, err
-	}
-	if cast.ToInt(val) >= cnt {
-		logx.Infof("CheckFreq.Get- key:%s, cnt:%s", key, val)
-		return false, nil
-	}
-	return true, nil
-}
-
-// TODO lua 脚本原子操作
-func setFreq(r *redis.Redis, key string, second int) (bool, error) {
-	// 判断键是否存在
-	exists, err := r.Exists(key)
+// checkFreq 频次校验（只读判断，不自增，不设置过期）
+func checkFreq(ctx context.Context, r *redis.Redis, key string, maxCnt int) (bool, error) {
+	script := `
+local cnt = redis.call('get', KEYS[1])
+if not cnt then
+    return 1
+end
+if tonumber(cnt) >= tonumber(ARGV[1]) then
+    return 0
+end
+return 1
+`
+	res, err := r.EvalCtx(ctx, script, []string{key}, maxCnt)
 	if err != nil {
-		return false, err
+		return false, fmt.Errorf("utils.checkFreq.Eval error: %w", err)
 	}
+	return res == int64(1), nil
+}
 
-	if exists {
-		// 键已存在，执行INCR命令自增值
-		cnt, err := r.Incr(key)
-		if err != nil {
-			return false, err
-		}
-		logx.Infof("SetFreq.Incr- key:%s, cnt:%d", key, cnt)
-	} else {
-		// 键不存在，执行SET命令设置初始值
-		err := r.Setex(key, "1", second)
-		if err != nil {
-			return false, err
-		}
-		logx.Info("SetFreq.Set- Initial Value Set")
+// setFreq 频次自增+首次设置过期（原子操作），返回当前计数
+func setFreq(ctx context.Context, r *redis.Redis, key string, expireSec int) (int64, error) {
+	script := `
+local cnt = redis.call('incr', KEYS[1])
+if cnt == 1 then
+    redis.call('expire', KEYS[1], ARGV[1])
+end
+return cnt
+`
+	res, err := r.EvalCtx(ctx, script, []string{key}, expireSec)
+	if err != nil {
+		return 0, fmt.Errorf("utils.setFreq.Eval error: %w", err)
 	}
-
-	return true, nil
+	return res.(int64), nil
 }

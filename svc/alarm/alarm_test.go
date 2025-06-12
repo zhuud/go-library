@@ -3,7 +3,7 @@ package alarm
 import (
 	"encoding/json"
 	"fmt"
-	"log"
+	"github.com/davecgh/go-spew/spew"
 	"testing"
 
 	"github.com/zeromicro/go-zero/core/proc"
@@ -18,5 +18,5 @@ func Test_Send(t *testing.T) {
 		Content:     fmt.Sprintf("hhh \n : %v", string(tt)),
 	})
 	proc.Shutdown()
-	log.Println(err)
+	spew.Dump(err)
 }

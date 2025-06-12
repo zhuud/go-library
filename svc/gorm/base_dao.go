@@ -3,10 +3,8 @@ package gorm
 import (
 	"context"
 	"errors"
-	"fmt"
 	"strings"
 	"sync/atomic"
-	"time"
 
 	"github.com/zeromicro/go-zero/core/logx"
 	"gorm.io/gorm"
@@ -26,12 +24,13 @@ type transactionContext struct {
 type Dao[M any, ID comparable] interface {
 	DB(ctx context.Context) *gorm.DB
 	Transaction(ctx context.Context, fn func(ctx context.Context, tx *gorm.DB) error) error
-	Create(ctx context.Context, m *M) error
-	Update(ctx context.Context, m *M, columns ...string) error
-	Delete(ctx context.Context, id ID) error
-	DeleteSoftByPk(ctx context.Context, id ID) error
+
+	Create(ctx context.Context, data any) error // 支持单条和批量
+	UpdateByWhere(ctx context.Context, where string, args []any, data any, columns ...string) error
+	DeleteByWhere(ctx context.Context, where string, args []any) error
 	GetByPk(ctx context.Context, id ID) (*M, bool, error)
-	FindListByWhere(ctx context.Context, query string, args []any, columns ...string) ([]*M, error)
+	FindOneByWhere(ctx context.Context, where string, args []any, columns ...string) (*M, bool, error)
+	FindListByWhere(ctx context.Context, where string, args []any, columns ...string) ([]*M, error)
 }
 
 type BaseDao[M any, ID comparable] struct {
@@ -100,27 +99,43 @@ func (dao *BaseDao[M, ID]) Create(ctx context.Context, m *M) error {
 	return dao.DB(ctx).Create(m).Error
 }
 
-func (dao *BaseDao[M, ID]) Update(ctx context.Context, m *M, columns ...string) error {
-	db := dao.DB(ctx)
-	if len(columns) == 0 {
-		return db.Save(m).Error
+func (dao *BaseDao[M, ID]) BatchCreate(ctx context.Context, ms []*M) error {
+	if len(ms) == 0 {
+		return nil
 	}
-	return db.Select(columns).Updates(m).Error
+	return dao.DB(ctx).Create(ms).Error
 }
 
-func (dao *BaseDao[M, ID]) Delete(ctx context.Context, id ID) error {
-	return dao.DB(ctx).Delete(new(M), id).Error
+func (dao *BaseDao[M, ID]) UpdateByWhere(ctx context.Context, where string, args []any, data any, columns ...string) (int64, error) {
+	tx := dao.DB(ctx).Where(where, args...)
+	if len(columns) > 0 {
+		tx.Select(columns)
+	}
+	ret := tx.Updates(data)
+	return ret.RowsAffected, ret.Error
 }
 
-func (dao *BaseDao[M, ID]) DeleteSoftByPk(ctx context.Context, id ID) error {
-	return dao.DB(ctx).
-		Where(fmt.Sprintf("%s = ?", dao.pkName), id).
-		Update("deleted_at", time.Now()).Error
+func (dao *BaseDao[M, ID]) DeleteByWhere(ctx context.Context, where string, args []any) (int64, error) {
+	ret := dao.DB(ctx).Where(where, args...).Delete(new(M))
+	return ret.RowsAffected, ret.Error
 }
 
 func (dao *BaseDao[M, ID]) GetByPk(ctx context.Context, id ID) (*M, bool, error) {
 	var m M
 	err := dao.DB(ctx).First(&m, id).Error
+	if errors.Is(err, gorm.ErrRecordNotFound) {
+		return nil, false, nil
+	}
+	return &m, err == nil, err
+}
+
+func (dao *BaseDao[M, ID]) FindOneByWhere(ctx context.Context, where string, args []any, columns ...string) (*M, bool, error) {
+	var m M
+	tx := dao.DB(ctx).Where(where, args...)
+	if len(columns) != 0 {
+		tx = tx.Select(strings.Join(columns, ", "))
+	}
+	err := tx.First(&m).Error
 	if errors.Is(err, gorm.ErrRecordNotFound) {
 		return nil, false, nil
 	}

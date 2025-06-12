@@ -2,11 +2,12 @@ package zookeeper
 
 import (
 	"fmt"
-	"github.com/zhuud/go-library/svc/zookeeper/intenal"
 	"log"
 	"sync"
 	"sync/atomic"
 	"time"
+
+	"github.com/zhuud/go-library/svc/zookeeper/intenal"
 
 	"github.com/go-zookeeper/zk"
 	"github.com/pkg/errors"

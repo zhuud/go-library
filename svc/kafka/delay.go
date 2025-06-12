@@ -53,19 +53,19 @@ func backgroundConsumeDelaySendKafka() {
 		log.Println("kafka delay consumer stop")
 	}()
 
-	ticker := time.NewTicker(delayTrickInterval)
-	defer ticker.Stop()
-
 	// 异步执行任务
 	task := executors.NewBulkExecutor(func(tasks []any) {
 		sendAndAck(cast.ToStringSlice(tasks))
 	}, executors.WithBulkTasks(1))
+
 	// NewBulkExecutor虽然注册Shutdown，但是资源链接也在Shutdown关闭，避免资源链接被关掉，注册WrapUp
 	defer proc.AddWrapUpListener(func() {
 		log.Println("kafka delay consumer task.Flush")
 		task.Flush()
 	})
 
+	ticker := time.NewTicker(delayTrickInterval)
+	defer ticker.Stop()
 	// 常驻 定时pop  数据被task异步执行
 	for {
 		select {

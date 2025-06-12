@@ -3,9 +3,10 @@ package server
 import (
 	"errors"
 	"fmt"
-	"github.com/zhuud/go-library/svc/server/internal"
 	"log"
 	"time"
+
+	"github.com/zhuud/go-library/svc/server/internal"
 
 	"github.com/go-zookeeper/zk"
 	"github.com/zeromicro/go-zero/core/logx"
