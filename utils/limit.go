@@ -2,7 +2,6 @@ package utils
 
 import (
 	"context"
-	"errors"
 	"fmt"
 
 	"github.com/zeromicro/go-zero/core/stores/redis"
@@ -10,14 +9,14 @@ import (
 
 var (
 	onceTicketKey    = "lib:once:ticket:string:%s:%s"
-	ErrTicketInvalid = errors.New("ticket invalid or already used")
+	ErrTicketInvalid = fmt.Errorf("utils.Ticket ticket invalid or already used")
 )
 
 // SetTicket 一次性ticket通用
 func SetTicket(ctx context.Context, r *redis.Redis, from, biz, ticket string, expireSec int) (string, error) {
 	_, err := r.SetnxExCtx(ctx, GetCacheKey(onceTicketKey, from, biz), ticket, expireSec)
 	if err != nil {
-		return ticket, fmt.Errorf("utils.SetTicket.SetnxEx error: %w", err)
+		return ticket, fmt.Errorf("utils.SetTicket.SetnxEx error %w", err)
 	}
 	return ticket, nil
 }
@@ -34,7 +33,7 @@ else
 end`
 	res, err := r.EvalCtx(ctx, script, []string{key}, ticket)
 	if err != nil {
-		return fmt.Errorf("utils.CheckTicket.Eval error: %w", err)
+		return fmt.Errorf("utils.CheckTicket.Eval error %w", err)
 	}
 	if res == int64(1) {
 		return nil
@@ -63,7 +62,7 @@ func CheckFreq(ctx context.Context, r *redis.Redis, optionList []FrequencyOption
 			return true, err
 		}
 		if !ok {
-			return false, errors.New(option.Msg)
+			return false, fmt.Errorf(option.Msg)
 		}
 	}
 	return true, nil
@@ -98,7 +97,7 @@ return 1
 `
 	res, err := r.EvalCtx(ctx, script, []string{key}, maxCnt)
 	if err != nil {
-		return false, fmt.Errorf("utils.checkFreq.Eval error: %w", err)
+		return false, fmt.Errorf("utils.checkFreq.Eval error %w", err)
 	}
 	return res == int64(1), nil
 }
@@ -114,7 +113,7 @@ return cnt
 `
 	res, err := r.EvalCtx(ctx, script, []string{key}, expireSec)
 	if err != nil {
-		return 0, fmt.Errorf("utils.setFreq.Eval error: %w", err)
+		return 0, fmt.Errorf("utils.setFreq.Eval error %w", err)
 	}
 	return res.(int64), nil
 }

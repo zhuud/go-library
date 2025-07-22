@@ -3,7 +3,6 @@ package kafka
 import (
 	"context"
 	"encoding/json"
-	"errors"
 	"fmt"
 	"log"
 	"sync"
@@ -39,7 +38,7 @@ func DelaySetUp(redis *redis.Redis, batchSize int, prefix string) {
 
 func PushDelay(ctx context.Context, topic string, data any, delayDuration time.Duration) error {
 	if hasSet == 0 {
-		return errors.New("must DelaySetUp before PushDelay")
+		return fmt.Errorf("kafka.PushDelay must DelaySetUp before PushDelay")
 	}
 	return internal.Push(ctx, topic, data, delayDuration)
 }
@@ -48,7 +47,7 @@ func backgroundConsumeDelaySendKafka() {
 	log.Println("kafka delay consumer start in the background")
 	defer func() {
 		if err := recover(); err != nil {
-			errorLog(fmt.Sprintf("kafka delay consumer error: %v", err))
+			errorLog(fmt.Sprintf("kafka delay consumer error %v", err))
 		}
 		log.Println("kafka delay consumer stop")
 	}()
@@ -102,14 +101,14 @@ func sendAndAck(jsonDataList []string) {
 		logx.Infof("kafka.sendAndAck forward delay message, data:%s", jsonData)
 		err = Push(ctx, delayData.Topic, delayData.Data)
 		if err != nil {
-			errorLog(fmt.Sprintf("kafka.sendAndAck Push kafka data: %s, error: %v", jsonData, err))
+			errorLog(fmt.Sprintf("kafka.sendAndAck Push kafka data %s  error %v", jsonData, err))
 
 			err = internal.FailAck(jsonData)
 		} else {
 			err = internal.SuccessAck(jsonData)
 		}
 		if err != nil {
-			errorLog(fmt.Sprintf("kafka.sendAndAck Ack data: %s, error: %v", jsonData, err))
+			errorLog(fmt.Sprintf("kafka.sendAndAck Ack data %s  error %v", jsonData, err))
 		}
 	}
 }

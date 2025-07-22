@@ -1,9 +1,8 @@
 package conf
 
 import (
+	"fmt"
 	"log"
-
-	"github.com/pkg/errors"
 )
 
 var (
@@ -18,14 +17,14 @@ func init() {
 func MustSetUp(c Conf) {
 	err := SetUp(c)
 	if err != nil {
-		log.Fatalf("config file path not set, error: %v", err)
+		log.Fatalf("conf.MustSetUp config file path not set error %v", err)
 	}
 }
 
 func SetUp(c Conf) error {
 	tfr, err := newFileReader(WithFile(c.FilePath))
 	if err != nil {
-		return errors.Wrap(err, "conf.SetUp.newFileReader error")
+		return fmt.Errorf("conf.SetUp.newFileReader error %w", err)
 	}
 
 	AppendReader(tfr)

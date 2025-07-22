@@ -4,7 +4,6 @@ import (
 	"context"
 	_ "embed"
 	"encoding/json"
-	"errors"
 	"fmt"
 	"sync"
 	"time"
@@ -56,7 +55,7 @@ func SetUp(redis *redis.Redis, batchSize int, prefix string) {
 
 func Push(ctx context.Context, topic string, data any, delayDuration time.Duration) error {
 	if client == nil {
-		return errors.New("delay queue must setup before")
+		return fmt.Errorf("delay.Push delay queue must setup before")
 	}
 
 	ts := time.Now().Local().Add(delayDuration).Unix()
@@ -68,12 +67,12 @@ func Push(ctx context.Context, topic string, data any, delayDuration time.Durati
 	}
 	dj, err := json.Marshal(dd)
 	if err != nil {
-		return errors.New(fmt.Sprintf("delay.Push Marshal error: %v", err))
+		return fmt.Errorf("delay.Push Marshal error %w", err)
 	}
 
 	_, err = client.ZaddCtx(ctx, fmtQueueKey(ts, delayQueueName), ts, string(dj))
 	if err != nil {
-		return errors.New(fmt.Sprintf("delay.Push ZaddCtx error: %v", err))
+		return fmt.Errorf("delay.Push ZaddCtx error %w", err)
 	}
 
 	return nil
@@ -101,7 +100,7 @@ func Pop() []string {
 				cast.ToString(queueGetBatchSize),
 			})
 		if err != nil {
-			logx.Error(fmt.Sprintf("delay.Pop ScriptRun error: %v", err))
+			logx.Errorf("delay.Pop ScriptRun error %v", err)
 			continue
 		}
 		item := cast.ToStringSlice(data)
@@ -115,7 +114,7 @@ func Pop() []string {
 
 func SuccessAck(value string) error {
 	if len(value) == 0 {
-		return errors.New("delay.SuccessAck value is empty")
+		return fmt.Errorf("delay.SuccessAck value is empty")
 	}
 	var data DelayData
 	_ = json.Unmarshal([]byte(value), &data)
@@ -126,7 +125,7 @@ func SuccessAck(value string) error {
 
 func FailAck(value string) error {
 	if len(value) == 0 {
-		return errors.New("delay.SuccessAck value is empty")
+		return fmt.Errorf("delay.SuccessAck value is empty")
 	}
 	var data DelayData
 	_ = json.Unmarshal([]byte(value), &data)

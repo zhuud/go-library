@@ -24,10 +24,10 @@ func AcquireMutexLock(ctx context.Context, r *redis.Redis, key string, seconds i
 	lockValue := GenUniqId()
 	ok, err := r.SetnxExCtx(ctx, key, lockValue, seconds)
 	if err != nil {
-		return nil, fmt.Errorf("utils.AcquireMutexLock.SetnxExCtx error: %w", err)
+		return nil, fmt.Errorf("utils.AcquireMutexLock.SetnxExCtx error %w", err)
 	}
 	if !ok {
-		return nil, fmt.Errorf("utils.AcquireMutexLock.SetnxExCtx failed, key:%s", key)
+		return nil, fmt.Errorf("utils.AcquireMutexLock.SetnxExCtx failed key %s", key)
 	}
 
 	return &MutexLock{Key: key, Value: lockValue, Timeout: seconds}, nil
@@ -43,10 +43,10 @@ else
 end`
 	res, err := rdb.EvalCtx(ctx, script, []string{l.Key}, l.Value)
 	if err != nil {
-		return fmt.Errorf("utils.mutexLock.Release.EvalCtx error: %w", err)
+		return fmt.Errorf("utils.mutexLock.Release.EvalCtx error %w", err)
 	}
 	if res == int64(0) {
-		return fmt.Errorf("utils.mutexLock.Release: lock not held or already released, key:%s", l.Key)
+		return fmt.Errorf("utils.mutexLock.Release: lock not held or already released key %s", l.Key)
 	}
 
 	return nil
@@ -65,7 +65,7 @@ end`
 		return fmt.Errorf("utils.mutexLock.Extend.EvalCtx error: %w", err)
 	}
 	if res == int64(0) {
-		return fmt.Errorf("utils.mutexLock.Extend: lock not held, cannot extend, key:%s", l.Key)
+		return fmt.Errorf("utils.mutexLock.Extend: lock not held cannot extend key %s", l.Key)
 	}
 
 	return nil

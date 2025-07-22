@@ -29,5 +29,5 @@ func GetRegisterAddr() (string, error) {
 			}
 		}
 	}
-	return "", errors.New("server.GetRegisterAddr cannot get ip")
+	return "", fmt.Errorf("server.GetRegisterAddr cannot get ip")
 }

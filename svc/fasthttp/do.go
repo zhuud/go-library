@@ -2,14 +2,14 @@ package fasthttp
 
 import (
 	"encoding/json"
-	"errors"
+	"fmt"
 
 	"github.com/valyala/fasthttp"
 )
 
 func (c *Client) Get(url string, args map[string]string, headers map[string]string, retry int) ([]byte, error) {
 	if c == nil {
-		return []byte{}, errors.New("fasthttp client is nil")
+		return []byte{}, fmt.Errorf("fasthttp.Get fasthttp client is nil")
 	}
 
 	// 从请求池中分别获取一个request、response实例
@@ -53,7 +53,7 @@ func (c *Client) Get(url string, args map[string]string, headers map[string]stri
 
 func (c *Client) Post(url string, args map[string]any, headers map[string]string, retry int) ([]byte, error) {
 	if c == nil {
-		return []byte{}, errors.New("fasthttp client is nil")
+		return []byte{}, fmt.Errorf("fasthttp.Post fasthttp client is nil")
 	}
 
 	// 从请求池中分别获取一个request、response实例

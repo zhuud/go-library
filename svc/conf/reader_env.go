@@ -2,8 +2,7 @@ package conf
 
 import (
 	"encoding/json"
-
-	"github.com/pkg/errors"
+	"fmt"
 )
 
 type envReader struct {
@@ -29,14 +28,14 @@ func (r *envReader) Get(k string, dv ...string) (string, error) {
 
 func (r *envReader) GetAny(k string, target any) error {
 	if len(k) == 0 {
-		return errors.New("conf.envReader k empty")
+		return fmt.Errorf("conf.envReader k empty")
 	}
 
 	v := getString(k)
 	if len(v) == 0 {
-		return errors.New("conf.envReader.Get nil")
+		return fmt.Errorf("conf.envReader.Get nil")
 	}
 
 	err := json.Unmarshal([]byte(v), target)
-	return errors.Wrap(err, "conf.envReader.GetAny error")
+	return fmt.Errorf("conf.envReader.GetAny error %w", err)
 }

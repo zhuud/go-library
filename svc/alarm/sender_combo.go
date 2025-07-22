@@ -1,7 +1,7 @@
 package alarm
 
 import (
-	"github.com/pkg/errors"
+	"fmt"
 )
 
 type (
@@ -17,7 +17,7 @@ func (c *comboSender) Send(data any) (err error) {
 			if err == nil {
 				err = e
 			} else {
-				err = errors.Wrap(e, err.Error())
+				err = fmt.Errorf("%s \n %w", err, e)
 			}
 		}
 	}

@@ -5,7 +5,6 @@ import (
 	"fmt"
 
 	"github.com/mitchellh/mapstructure"
-	"github.com/pkg/errors"
 	"github.com/spf13/viper"
 	"github.com/zeromicro/go-zero/core/conf"
 	"github.com/zhuud/go-library/svc/conf/internal"
@@ -76,19 +75,19 @@ func (r *fileReader) Get(k string, dv ...string) (string, error) {
 func (r *fileReader) GetAny(k string, target any) error {
 	if len(k) == 0 {
 		err := conf.Load(fileOptions.FilePath, target)
-		return errors.Wrap(err, "conf.fileReader.Load error")
+		return fmt.Errorf("conf.fileReader.Load error %w", err)
 	}
 
 	v := r.handler.Get(k)
 	if v == nil {
-		return errors.New("conf.fileReader.Get nil")
+		return fmt.Errorf("conf.fileReader.Get nil")
 	}
 
 	if sv, ok := v.(string); ok {
 		err := json.Unmarshal([]byte(sv), target)
-		return errors.Wrap(err, "conf.fileReader.Unmarshal error")
+		return fmt.Errorf("conf.fileReader.Unmarshal error %w", err)
 	}
 
 	err := mapstructure.WeakDecode(v, target)
-	return errors.Wrap(err, "conf.fileReader.WeakDecode error")
+	return fmt.Errorf("conf.fileReader.WeakDecode error %w", err)
 }

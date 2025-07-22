@@ -1,10 +1,10 @@
 package zookeeper
 
 import (
+	"fmt"
 	"sync"
 
 	"github.com/cornelk/hashmap"
-	"github.com/pkg/errors"
 )
 
 var (
@@ -13,32 +13,32 @@ var (
 	zkChildCache    = hashmap.New[string, any]()
 )
 
-func (z *Client) GetC(k string) (string, error) {
+func (z *Client) GetC(key string) (string, error) {
 
-	if cacheData, ok := zkCache.Load(k); ok {
+	if cacheData, ok := zkCache.Load(key); ok {
 		return cacheData.(string), nil
 	}
 
-	data, _, events, err := z.GetW(k)
+	data, _, events, err := z.GetW(key)
 	if err != nil {
-		return "", errors.Wrap(err, "GetC.GetW error, key:"+k)
+		return "", fmt.Errorf("zookeeper.GetC.GetW key %s  error %w ", key, err)
 	}
 
-	zkCache.Store(k, string(data))
+	zkCache.Store(key, string(data))
 	go func() {
 		for {
 			<-events
-			data, _, events, err = z.GetW(k)
+			data, _, events, err = z.GetW(key)
 			// 重试
 			if err != nil {
-				data, _, events, err = z.GetW(k)
+				data, _, events, err = z.GetW(key)
 			}
 			// 重试后还失败 删除此key 结束watch 等待下次重新获取
 			if err != nil {
-				zkCache.Delete(k)
+				zkCache.Delete(key)
 				return
 			}
-			zkCache.Store(k, string(data))
+			zkCache.Store(key, string(data))
 		}
 	}()
 
@@ -54,13 +54,13 @@ func (z *Client) GetChildC(key string) (map[string]string, error) {
 	data := make(map[string]string)
 	keys, _, events, err := z.ChildrenW(key)
 	if err != nil {
-		return data, errors.Wrap(err, "GetChildC.ChildrenW error, key:"+key)
+		return data, fmt.Errorf("zookeeper.GetChildC.ChildrenW key %s  error %w ", key, err)
 	}
 
 	for _, childKey := range keys {
 		childData, _, err := z.Get(key + `/` + childKey)
 		if err != nil {
-			return data, errors.Wrap(err, "GetChildC.Get error, key:"+key+`/`+childKey)
+			return data, fmt.Errorf("zookeeper.GetChildC.Get key %s/%s  error %w ", key, childKey, err)
 		}
 		data[childKey] = string(childData)
 	}
@@ -102,7 +102,7 @@ func (z *Client) GetChildKeyC(key string) ([]string, error) {
 	//通过watch的方式获取并观察节点的变化
 	data, _, events, err := z.ChildrenW(key)
 	if err != nil {
-		return keys, errors.Wrap(err, "GetChildKeyC.ChildrenW error, key:"+key)
+		return keys, fmt.Errorf("zookeeper.GetChildKeyC.ChildrenW key %s  error %w ", key, err)
 	}
 
 	zkChildKeyCache.Store(key, data)

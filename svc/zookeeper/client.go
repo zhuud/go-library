@@ -39,7 +39,7 @@ func RegisterAfterConnected(handler func()) {
 func MustNewZookeeperClient(servers ...string) *Client {
 	c, err := NewZookeeperClient(servers...)
 	if err != nil {
-		log.Fatalf("NewZookeeperClient error: %v", err)
+		log.Fatalf("zookeeper.MustNewZookeeperClient error %v", err)
 	}
 	return c
 }
@@ -68,7 +68,7 @@ func NewZookeeperClient(servers ...string) (*Client, error) {
 		err = waitSession(eventChan, 10)
 	}
 	if err != nil {
-		return nil, errors.Wrap(err, "zookeeper.NewZookeeperClient.Connect error")
+		return nil, fmt.Errorf("zookeeper.NewZookeeperClient.Connect error %w", err)
 	}
 	client = &Client{conn: zkConn}
 
@@ -82,7 +82,7 @@ func NewZookeeperClient(servers ...string) (*Client, error) {
 func (z *Client) ChildrenW(path string) ([]string, *zk.Stat, <-chan zk.Event, error) {
 	conn := getConn()
 	if conn == nil {
-		return nil, nil, nil, errors.New("zookeeper conn is nil")
+		return nil, nil, nil, fmt.Errorf("zookeeper.ChildrenW zookeeper conn is nil")
 	}
 	w, stat, events, err := conn.ChildrenW(path)
 	if z.debugModeRetry(err) {
@@ -94,7 +94,7 @@ func (z *Client) ChildrenW(path string) ([]string, *zk.Stat, <-chan zk.Event, er
 func (z *Client) Get(path string) ([]byte, *zk.Stat, error) {
 	conn := getConn()
 	if conn == nil {
-		return nil, nil, errors.New("zookeeper conn is nil")
+		return nil, nil, fmt.Errorf("zookeeper.Get zookeeper conn is nil")
 	}
 	get, stat, err := conn.Get(path)
 	if z.debugModeRetry(err) {
@@ -106,7 +106,7 @@ func (z *Client) Get(path string) ([]byte, *zk.Stat, error) {
 func (z *Client) GetW(path string) ([]byte, *zk.Stat, <-chan zk.Event, error) {
 	conn := getConn()
 	if conn == nil {
-		return nil, nil, nil, errors.New("zookeeper conn is nil")
+		return nil, nil, nil, fmt.Errorf("zookeeper.GetW zookeeper conn is nil")
 	}
 	w, stat, events, err := conn.GetW(path)
 	if z.debugModeRetry(err) {
@@ -118,7 +118,7 @@ func (z *Client) GetW(path string) ([]byte, *zk.Stat, <-chan zk.Event, error) {
 func (z *Client) Delete(path string, version int32) error {
 	conn := getConn()
 	if conn == nil {
-		return errors.New("zookeeper conn is nil")
+		return fmt.Errorf("zookeeper.Delete zookeeper conn is nil")
 	}
 	err := conn.Delete(path, version)
 	if z.debugModeRetry(err) {
@@ -130,7 +130,7 @@ func (z *Client) Delete(path string, version int32) error {
 func (z *Client) Exists(path string) (bool, *zk.Stat, error) {
 	conn := getConn()
 	if conn == nil {
-		return false, nil, errors.New("zookeeper conn is nil")
+		return false, nil, fmt.Errorf("zookeeper.Exists zookeeper conn is nil")
 	}
 	exists, stat, err := conn.Exists(path)
 	if z.debugModeRetry(err) {
@@ -142,7 +142,7 @@ func (z *Client) Exists(path string) (bool, *zk.Stat, error) {
 func (z *Client) Create(path string, data []byte, flag int32, acl []zk.ACL) (string, error) {
 	conn := getConn()
 	if conn == nil {
-		return "", errors.New("zookeeper conn is nil")
+		return "", fmt.Errorf("zookeeper.Create zookeeper conn is nil")
 	}
 	create, err := conn.Create(path, data, flag, acl)
 	if z.debugModeRetry(err) {
@@ -206,7 +206,7 @@ func waitSession(eventChan <-chan zk.Event, retry int) error {
 			log.Println(fmt.Sprintf("zookeeper waiting connect event:%s %s", event.State.String(), event.Server))
 			retry--
 			if retry < 0 {
-				return errors.New("zookeeper.waitSession waiting connect error retry many times")
+				return fmt.Errorf("zookeeper.waitSession waiting connect error retry many times")
 			}
 		}
 	}

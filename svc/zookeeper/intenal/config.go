@@ -1,7 +1,7 @@
 package intenal
 
 import (
-	"errors"
+	"fmt"
 	"github.com/zhuud/go-library/svc/conf"
 )
 
@@ -13,7 +13,7 @@ func GetServers() ([]string, error) {
 		_ = conf.GetUnmarshal("ZkAddr", &servers)
 	}
 	if len(servers) == 0 {
-		return servers, errors.New("zookeeper.NewZookeeperClient not set address, please set env ZK_ADDR or config ZkAddr")
+		return servers, fmt.Errorf("zookeeper.NewZookeeperClient not set address, please set env ZK_ADDR or config ZkAddr")
 	}
 	return servers, nil
 }

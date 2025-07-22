@@ -9,7 +9,6 @@ import (
 	lark "github.com/larksuite/oapi-sdk-go/v3"
 	larkcore "github.com/larksuite/oapi-sdk-go/v3/core"
 	larkim "github.com/larksuite/oapi-sdk-go/v3/service/im/v1"
-	"github.com/pkg/errors"
 	"github.com/zeromicro/go-zero/core/logx"
 	"github.com/zhuud/go-library/svc/conf"
 )
@@ -52,7 +51,7 @@ func newLarkSender() Sender {
 
 	err := conf.GetUnmarshal(fmt.Sprintf("/qconf/web-config/%s", "alarm_wechat"), &lc)
 	if err != nil {
-		logx.Errorf("alarm.newLarkSender config cannot match error: %v", err)
+		logx.Errorf("alarm.newLarkSender config cannot match error %v", err)
 		return nil
 	}
 
@@ -70,7 +69,7 @@ func (s *larkSender) Send(data any) error {
 
 	msg, ok := data.(LarkMessage)
 	if !ok {
-		return errors.New(fmt.Sprintf("alarm.larkSender.Send data cannot match data: %v", data))
+		return fmt.Errorf("alarm.larkSender.Send data cannot match data %v", data)
 	}
 	if len(msg.ReceiveType) == 0 {
 		msg.ReceiveType = lc.FsReceiveIdType
@@ -92,10 +91,10 @@ func (s *larkSender) Send(data any) error {
 			).Build(),
 	)
 	if err != nil {
-		return err
+		return fmt.Errorf("alarm.larkSender.Send client.Im.Message.Create error %w", err)
 	}
 	if resp.Code != 0 {
 		return resp.CodeError
 	}
-	return err
+	return nil
 }

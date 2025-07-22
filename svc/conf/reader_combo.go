@@ -1,7 +1,7 @@
 package conf
 
 import (
-	"github.com/pkg/errors"
+	"fmt"
 )
 
 type (
@@ -22,7 +22,7 @@ func (c *comboReader) Get(k string, dv ...string) (string, error) {
 			if err == nil {
 				err = e
 			} else {
-				err = errors.Wrap(e, err.Error())
+				err = fmt.Errorf("%s \n %w", err, e)
 			}
 		}
 	}
@@ -44,7 +44,7 @@ func (c *comboReader) GetAny(k string, target any) error {
 		if err == nil {
 			err = e
 		} else {
-			err = errors.Wrap(e, err.Error())
+			err = fmt.Errorf("%s \n %w", err, e)
 		}
 	}
 	return err

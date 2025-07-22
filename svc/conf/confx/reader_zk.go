@@ -2,9 +2,9 @@ package confx
 
 import (
 	"encoding/json"
+	"fmt"
 	"sync"
 
-	"github.com/pkg/errors"
 	"github.com/zhuud/go-library/svc/conf"
 	"github.com/zhuud/go-library/svc/zookeeper"
 )
@@ -34,7 +34,7 @@ func NewZookeeperReader(zk *zookeeper.Client) conf.Reader {
 func (r *zookeeperReader) Get(k string, dv ...string) (string, error) {
 	v, err := r.handler.GetC(k)
 	if err != nil {
-		return "", errors.Wrap(err, "confx.zookeeperReader.Get error")
+		return "", fmt.Errorf("confx.zookeeperReader.Get error %w", err)
 	}
 	if len(v) == 0 && len(dv) > 0 {
 		return dv[0], nil
@@ -44,17 +44,17 @@ func (r *zookeeperReader) Get(k string, dv ...string) (string, error) {
 
 func (r *zookeeperReader) GetAny(k string, target any) error {
 	if len(k) == 0 {
-		return errors.New("confx.zookeeperReader k empty")
+		return fmt.Errorf("confx.zookeeperReader k empty")
 	}
 
 	v, err := r.Get(k)
 	if err != nil {
-		return errors.Wrap(err, "confx.zookeeperReader.Get error")
+		return fmt.Errorf("confx.zookeeperReader.Get error %w", err)
 	}
 	if len(v) == 0 {
-		return errors.New("confx.zookeeperReader.Get nil")
+		return fmt.Errorf("confx.zookeeperReader.Get nil")
 	}
 
 	err = json.Unmarshal([]byte(v), target)
-	return errors.Wrap(err, "confx.zookeeperReader.Unmarshal error")
+	return fmt.Errorf("confx.zookeeperReader.Unmarshal error %w", err)
 }
