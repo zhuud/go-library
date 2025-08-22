@@ -4,7 +4,6 @@
 package internal
 
 import (
-	"errors"
 	"fmt"
 	"net"
 
