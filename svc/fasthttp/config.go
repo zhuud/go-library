@@ -1,6 +1,9 @@
 package fasthttp
 
-import "time"
+import (
+	"github.com/avast/retry-go/v4"
+	"time"
+)
 
 const (
 	DefaultReadTimeout        = 5 * time.Second
@@ -8,6 +11,7 @@ const (
 	DefaultMaxConnWaitTimeout = 5 * time.Second
 	DefaultConcurrency        = 256 * 1024
 	DefaultDNSCacheDuration   = 10 * time.Minute
+	DefaultMaxConnsPerHost    = 512
 )
 
 type (
@@ -32,5 +36,17 @@ type (
 		Concurrency int `json:",optional,default=262144"`
 		// 通过 Dial* 函数缓存解析的 TCP 地址的持续时间
 		DNSCacheDuration int `json:",optional,default=60"`
+	}
+
+	// RetryConfig 重试配置
+	RetryConfig struct {
+		// MaxAttempts 最大重试次数
+		MaxAttempts uint
+		// InitialDelay 初始延迟时间
+		InitialDelay time.Duration
+		// MaxDelay 最大延迟时间
+		MaxDelay time.Duration
+		// DelayType 延迟类型
+		DelayType retry.DelayTypeFunc
 	}
 )
