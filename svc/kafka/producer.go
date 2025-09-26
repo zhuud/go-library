@@ -4,13 +4,14 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"runtime"
+	"sync"
+	"time"
+
 	"github.com/zeromicro/go-queue/kq"
 	"github.com/zeromicro/go-zero/core/logx"
 	"github.com/zeromicro/go-zero/core/proc"
 	"github.com/zhuud/go-library/utils"
-	"runtime"
-	"sync"
-	"time"
 )
 
 type (
