@@ -37,5 +37,8 @@ func (r *envReader) GetAny(k string, target any) error {
 	}
 
 	err := json.Unmarshal([]byte(v), target)
-	return fmt.Errorf("conf.envReader.GetAny error %w", err)
+	if err != nil {
+		return fmt.Errorf("conf.envReader.GetAny error %w", err)
+	}
+	return nil
 }
