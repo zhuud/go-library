@@ -2,9 +2,10 @@ package kafka
 
 import (
 	"fmt"
+	"strings"
+
 	"github.com/zeromicro/go-queue/kq"
 	"github.com/zhuud/go-library/svc/conf"
-	"strings"
 )
 
 func getServers() ([]string, error) {
