@@ -38,7 +38,8 @@ func newFileReader(opts ...FileOptionFunc) (Reader, error) {
 	handleOptions(opts)
 
 	if len(fileOptions.FilePath) == 0 {
-		fileOptions.FilePath = fmt.Sprintf(`%s/etc/config.%s.yaml`, internal.WorkingDir(), Env)
+		wd := internal.WorkingDir()
+		fileOptions.FilePath = fmt.Sprintf(`%s/etc/config.%s.yaml`, wd, Env)
 	}
 
 	viper.SetConfigFile(fileOptions.FilePath)
