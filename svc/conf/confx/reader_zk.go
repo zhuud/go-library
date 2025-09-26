@@ -56,5 +56,8 @@ func (r *zookeeperReader) GetAny(k string, target any) error {
 	}
 
 	err = json.Unmarshal([]byte(v), target)
-	return fmt.Errorf("confx.zookeeperReader.Unmarshal error %w", err)
+	if err != nil {
+		return fmt.Errorf("confx.zookeeperReader.Unmarshal error %w", err)
+	}
+	return nil
 }
