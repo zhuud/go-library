@@ -11,9 +11,10 @@ import (
 )
 
 type (
-	// FileOptionFunc defines the method to customize the logging.
-	FileOptionFunc func(option *fileOption)
-	fileOption     struct {
+	// FileOptionFunc defines the method to customize the file reader.
+	FileOptionFunc func(config *fileConfig)
+
+	fileConfig struct {
 		FilePath string
 	}
 
@@ -23,8 +24,8 @@ type (
 )
 
 var (
-	fileOptions fileOption
-	fr          *fileReader
+	fc fileConfig
+	fr *fileReader
 )
 
 // file
@@ -37,12 +38,12 @@ func newFileReader(opts ...FileOptionFunc) (Reader, error) {
 
 	handleOptions(opts)
 
-	if len(fileOptions.FilePath) == 0 {
+	if len(fc.FilePath) == 0 {
 		wd := internal.WorkingDir()
-		fileOptions.FilePath = fmt.Sprintf(`%s/etc/config.%s.yaml`, wd, Env)
+		fc.FilePath = fmt.Sprintf(`%s/etc/config.%s.yaml`, wd, Env())
 	}
 
-	viper.SetConfigFile(fileOptions.FilePath)
+	viper.SetConfigFile(fc.FilePath)
 	err := viper.ReadInConfig()
 	if err != nil {
 		return nil, err
@@ -55,27 +56,23 @@ func newFileReader(opts ...FileOptionFunc) (Reader, error) {
 
 func handleOptions(opts []FileOptionFunc) {
 	for _, opt := range opts {
-		opt(&fileOptions)
+		opt(&fc)
 	}
 }
 
 func WithFile(filePath string) FileOptionFunc {
-	return func(opts *fileOption) {
-		opts.FilePath = filePath
+	return func(config *fileConfig) {
+		config.FilePath = filePath
 	}
 }
 
-func (r *fileReader) Get(k string, dv ...string) (string, error) {
-	v := r.handler.GetString(k)
-	if len(v) == 0 && len(dv) > 0 {
-		return dv[0], nil
-	}
-	return v, nil
+func (r *fileReader) Get(k string) (string, error) {
+	return r.handler.GetString(k), nil
 }
 
 func (r *fileReader) GetAny(k string, target any) error {
 	if len(k) == 0 {
-		err := conf.Load(fileOptions.FilePath, target)
+		err := conf.Load(fc.FilePath, target)
 		if err != nil {
 			return fmt.Errorf("conf.fileReader.Load error %w", err)
 		}

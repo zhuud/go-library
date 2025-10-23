@@ -50,7 +50,7 @@ func RegisterZk() error {
 	if err != nil {
 		return err
 	}
-	err = zkCreate(zkClient, nodePath, conf.AppZone, zk.FlagEphemeral)
+	err = zkCreate(zkClient, nodePath, conf.AppZone(), zk.FlagEphemeral)
 	if err != nil {
 		return err
 	}
@@ -118,7 +118,7 @@ func backgroundCheckZkNode(zkClient *zookeeper.Client) {
 				continue
 			}
 			logx.Infof("%v server.backgroundCheckZkNode node:%s recreate", time.Now().Local().Format(time.DateTime), nodePath)
-			err = zkCreate(zkClient, nodePath, conf.AppZone, zk.FlagEphemeral)
+			err = zkCreate(zkClient, nodePath, conf.AppZone(), zk.FlagEphemeral)
 			if err != nil {
 				logx.Errorf("server.backgroundCheckZkNode.zkCreate node %s  error %v", nodePath, err)
 			}

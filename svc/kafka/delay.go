@@ -15,7 +15,6 @@ import (
 	"github.com/zeromicro/go-zero/core/proc"
 	"github.com/zeromicro/go-zero/core/stores/redis"
 	"github.com/zeromicro/go-zero/core/threading"
-	"github.com/zhuud/go-library/svc/alarm"
 	"github.com/zhuud/go-library/svc/kafka/internal"
 )
 
@@ -115,7 +114,4 @@ func sendAndAck(jsonDataList []string) {
 
 func errorLog(msg string) {
 	logx.Error(msg)
-	_ = alarm.Send(alarm.LarkMessage{
-		Content: msg,
-	})
 }

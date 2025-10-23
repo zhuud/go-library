@@ -22,8 +22,8 @@ func newEnvReader() Reader {
 	return &envReader{}
 }
 
-func (r *envReader) Get(k string, dv ...string) (string, error) {
-	return getString(k, dv...), nil
+func (r *envReader) Get(k string) (string, error) {
+	return getString(k), nil
 }
 
 func (r *envReader) GetAny(k string, target any) error {

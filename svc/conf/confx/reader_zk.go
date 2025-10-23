@@ -31,13 +31,10 @@ func NewZookeeperReader(zk *zookeeper.Client) conf.Reader {
 	}
 }
 
-func (r *zookeeperReader) Get(k string, dv ...string) (string, error) {
+func (r *zookeeperReader) Get(k string) (string, error) {
 	v, err := r.handler.GetC(k)
 	if err != nil {
 		return "", fmt.Errorf("confx.zookeeperReader.Get error %w", err)
-	}
-	if len(v) == 0 && len(dv) > 0 {
-		return dv[0], nil
 	}
 	return v, nil
 }

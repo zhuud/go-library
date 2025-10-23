@@ -1,7 +1,8 @@
 package conf
 
 type (
-	Conf struct {
+	// Config 配置参数
+	Config struct {
 		FilePath string
 	}
 )

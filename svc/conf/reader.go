@@ -6,7 +6,7 @@ import (
 
 type (
 	Reader interface {
-		Get(k string, dv ...string) (string, error)
+		Get(k string) (string, error)
 		GetAny(k string, target any) error
 	}
 
