@@ -1,6 +1,7 @@
 package alarm
 
 import (
+	"errors"
 	"fmt"
 )
 
@@ -10,16 +11,19 @@ type (
 	}
 )
 
-func (c *comboSender) Send(data any) (err error) {
-	for _, r := range c.senders {
-		e := r.Send(data)
+func (c *comboSender) Send(data any) error {
+	var errs []error
+
+	for i, s := range c.senders {
+		e := s.Send(data)
 		if e != nil {
-			if err == nil {
-				err = e
-			} else {
-				err = fmt.Errorf("%s \n %w", err, e)
-			}
+			errs = append(errs, fmt.Errorf("sender[%d]: %w", i, e))
 		}
 	}
-	return err
+
+	// 所有 sender 都要执行，收集所有错误
+	if len(errs) > 0 {
+		return fmt.Errorf("alarm.Send failed %d/%d senders: %w", len(errs), len(c.senders), errors.Join(errs...))
+	}
+	return nil
 }

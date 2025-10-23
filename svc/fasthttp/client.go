@@ -14,7 +14,7 @@ type Client struct {
 // New 创建一个新的 FastHTTP 客户端实例
 func New(opts ...OptionFunc) *Client {
 	// 默认配置
-	config := &Config{
+	config := &Conf{
 		ReadTimeout:         DefaultReadTimeout,
 		WriteTimeout:        DefaultWriteTimeout,
 		MaxConnWaitTimeout:  DefaultMaxConnWaitTimeout,
@@ -55,7 +55,7 @@ func New(opts ...OptionFunc) *Client {
 
 // WithReadTimeout 设置读超时时间
 func WithReadTimeout(timeout time.Duration) OptionFunc {
-	return func(config *Config) {
+	return func(config *Conf) {
 		if timeout > 0 {
 			config.ReadTimeout = timeout
 		}
@@ -64,7 +64,7 @@ func WithReadTimeout(timeout time.Duration) OptionFunc {
 
 // WithWriteTimeout 设置写超时时间
 func WithWriteTimeout(timeout time.Duration) OptionFunc {
-	return func(config *Config) {
+	return func(config *Conf) {
 		if timeout > 0 {
 			config.WriteTimeout = timeout
 		}
@@ -73,7 +73,7 @@ func WithWriteTimeout(timeout time.Duration) OptionFunc {
 
 // WithMaxConnWaitTimeout 设置连接等待超时时间
 func WithMaxConnWaitTimeout(timeout time.Duration) OptionFunc {
-	return func(config *Config) {
+	return func(config *Conf) {
 		if timeout > 0 {
 			config.MaxConnWaitTimeout = timeout
 		}
@@ -82,7 +82,7 @@ func WithMaxConnWaitTimeout(timeout time.Duration) OptionFunc {
 
 // WithMaxIdleConnDuration 设置空闲连接持续时间
 func WithMaxIdleConnDuration(duration time.Duration) OptionFunc {
-	return func(config *Config) {
+	return func(config *Conf) {
 		if duration > 0 {
 			config.MaxIdleConnDuration = duration
 		}
@@ -91,7 +91,7 @@ func WithMaxIdleConnDuration(duration time.Duration) OptionFunc {
 
 // WithMaxConnsPerHost 设置每个主机的最大连接数
 func WithMaxConnsPerHost(maxConns int) OptionFunc {
-	return func(config *Config) {
+	return func(config *Conf) {
 		if maxConns > 0 {
 			config.MaxConnsPerHost = maxConns
 		}
@@ -100,7 +100,7 @@ func WithMaxConnsPerHost(maxConns int) OptionFunc {
 
 // WithConcurrency 设置最大并发数
 func WithConcurrency(concurrency int) OptionFunc {
-	return func(config *Config) {
+	return func(config *Conf) {
 		if concurrency >= 0 {
 			config.Concurrency = concurrency
 		}
@@ -109,7 +109,7 @@ func WithConcurrency(concurrency int) OptionFunc {
 
 // WithDNSCacheDuration 设置 DNS 缓存持续时间
 func WithDNSCacheDuration(duration time.Duration) OptionFunc {
-	return func(config *Config) {
+	return func(config *Conf) {
 		if duration > 0 {
 			config.DNSCacheDuration = duration
 		}

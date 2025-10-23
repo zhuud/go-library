@@ -10,28 +10,28 @@ import (
 
 // Get 执行GET请求
 func (c *Client) Get(url string, args map[string]string, headers map[string]string) ([]byte, error) {
-	return c.doRequestWithRetry(fasthttp.MethodGet, url, args, nil, headers, &RetryConfig{
+	return c.doRequestWithRetry(fasthttp.MethodGet, url, args, nil, headers, &RetryConf{
 		MaxAttempts: 1,
 	})
 }
 
-func (c *Client) GetWithRetry(url string, args map[string]string, headers map[string]string, retryConfig *RetryConfig) ([]byte, error) {
+func (c *Client) GetWithRetry(url string, args map[string]string, headers map[string]string, retryConfig *RetryConf) ([]byte, error) {
 	return c.doRequestWithRetry(fasthttp.MethodGet, url, args, nil, headers, retryConfig)
 }
 
 // Post 执行POST请求
 func (c *Client) Post(url string, args map[string]any, headers map[string]string) ([]byte, error) {
-	return c.doRequestWithRetry(fasthttp.MethodPost, url, nil, args, headers, &RetryConfig{
+	return c.doRequestWithRetry(fasthttp.MethodPost, url, nil, args, headers, &RetryConf{
 		MaxAttempts: 1,
 	})
 }
 
-func (c *Client) PostWithRetry(url string, args map[string]any, headers map[string]string, retryConfig *RetryConfig) ([]byte, error) {
+func (c *Client) PostWithRetry(url string, args map[string]any, headers map[string]string, retryConfig *RetryConf) ([]byte, error) {
 	return c.doRequestWithRetry(fasthttp.MethodPost, url, nil, args, headers, retryConfig)
 }
 
 // doRequest 统一的请求处理方法
-func (c *Client) doRequestWithRetry(method, url string, queryArgs map[string]string, bodyArgs map[string]any, headers map[string]string, retryConfig *RetryConfig) ([]byte, error) {
+func (c *Client) doRequestWithRetry(method, url string, queryArgs map[string]string, bodyArgs map[string]any, headers map[string]string, retryConfig *RetryConf) ([]byte, error) {
 	if c == nil {
 		return nil, fmt.Errorf("fasthttp.doRequestWithRetry fasthttp client is nil")
 	}

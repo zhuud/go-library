@@ -14,14 +14,14 @@ func init() {
 	setReader(newEnvReader())
 }
 
-func MustSetUp(c Config) {
+func MustSetUp(c Conf) {
 	err := SetUp(c)
 	if err != nil {
 		log.Fatalf("conf.MustSetUp config file path not set error %v", err)
 	}
 }
 
-func SetUp(c Config) error {
+func SetUp(c Conf) error {
 	tfr, err := newFileReader(WithFile(c.FilePath))
 	if err != nil {
 		return fmt.Errorf("conf.SetUp.newFileReader error %w", err)

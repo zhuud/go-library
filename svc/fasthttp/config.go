@@ -18,8 +18,8 @@ const (
 )
 
 type (
-	// Config 客户端配置
-	Config struct {
+	// Conf 客户端配置
+	Conf struct {
 		// ReadTimeout 读超时时间，不设置 read 超时可能会造成连接复用失效
 		ReadTimeout time.Duration
 		// WriteTimeout 写超时时间
@@ -37,10 +37,10 @@ type (
 	}
 
 	// OptionFunc 配置函数
-	OptionFunc func(config *Config)
+	OptionFunc func(config *Conf)
 
-	// RetryConfig 重试配置
-	RetryConfig struct {
+	// RetryConf 重试配置
+	RetryConf struct {
 		// MaxAttempts 最大重试次数
 		MaxAttempts uint
 		// InitialDelay 初始延迟时间

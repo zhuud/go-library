@@ -17,8 +17,8 @@ const (
 )
 
 type (
-	// Config 报警器配置
-	Config struct {
+	// Conf 报警器配置
+	Conf struct {
 		// CachedTasks 缓存任务数量，默认为 DefaultCachedTasks
 		CachedTasks int
 		// FlushInterval 刷新间隔，默认为 DefaultFlushInterval
@@ -31,11 +31,11 @@ type (
 	}
 
 	// OptionFunc 配置函数
-	OptionFunc func(config *Config)
+	OptionFunc func(config *Conf)
 
 	// Alarm 报警器实例
 	Alarm struct {
-		config   *Config
+		config   *Conf
 		sender   *basicSender
 		executor *executors.BulkExecutor
 		mu       sync.RWMutex
@@ -45,7 +45,7 @@ type (
 // New 创建一个新的报警器实例
 func New(opts ...OptionFunc) (*Alarm, error) {
 	// 默认配置
-	config := &Config{
+	config := &Conf{
 		CachedTasks:   DefaultCachedTasks,
 		FlushInterval: DefaultFlushInterval,
 	}
@@ -163,21 +163,21 @@ func (a *Alarm) Append(s Sender) {
 
 // WithCachedTasks 设置缓存任务数量
 func WithCachedTasks(tasks int) OptionFunc {
-	return func(config *Config) {
+	return func(config *Conf) {
 		config.CachedTasks = tasks
 	}
 }
 
 // WithFlushInterval 设置刷新间隔
 func WithFlushInterval(interval time.Duration) OptionFunc {
-	return func(config *Config) {
+	return func(config *Conf) {
 		config.FlushInterval = interval
 	}
 }
 
 // WithLarkConfig 设置飞书配置
 func WithLarkConfig(larkConfig LarkConfig) OptionFunc {
-	return func(config *Config) {
+	return func(config *Conf) {
 		config.LarkConfig = &larkConfig
 	}
 }
