@@ -11,8 +11,8 @@ func Test_Send(t *testing.T) {
 	// 创建报警器实例（自动初始化飞书发送器）
 	alarmInstance, err := New(
 		WithLarkConfig(LarkConfig{
-			AppId:     "cli_a0b61445cf78d00c",
-			AppSecret: "fuJ4u8qVYubqh1ltdbxJOgGluDX1v1Ah",
+			AppId:     "xxxxxx",
+			AppSecret: "xxxxxx",
 		}),
 	)
 	if err != nil {
@@ -22,7 +22,7 @@ func Test_Send(t *testing.T) {
 	// 发送文本消息（必须指定所有必填字段）
 	err = alarmInstance.Send(LarkMessage{
 		ReceiveType: "chat_id",
-		ReceiveId:   "oc_060d34dd3886beba4297817ff851c05f",
+		ReceiveId:   "xxxxxx",
 		MsgType:     "text",
 		Content:     `{"text":"项目已更新"}`,
 	})
@@ -31,7 +31,7 @@ func Test_Send(t *testing.T) {
 	postContent := `{"zh_cn":{"title":"项目更新通知","content":[[{"tag":"text","text":"项目已更新"}]]}}`
 	err = alarmInstance.Send(LarkMessage{
 		ReceiveType: "chat_id",
-		ReceiveId:   "oc_060d34dd3886beba4297817ff851c05f",
+		ReceiveId:   "xxxxxx",
 		MsgType:     "post",
 		Content:     postContent,
 	})
