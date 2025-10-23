@@ -1,6 +1,7 @@
 package alarm
 
 import (
+	"errors"
 	"sync"
 	"time"
 
@@ -8,88 +9,175 @@ import (
 	"github.com/zeromicro/go-zero/core/logx"
 )
 
+const (
+	// DefaultCachedTasks 默认缓存任务数量
+	DefaultCachedTasks = 100
+	// DefaultFlushInterval 默认刷新间隔
+	DefaultFlushInterval = time.Second
+)
+
 type (
-	OptionFunc func(options *option)
-	option     struct {
-		cachedTasks   int
-		flushInterval time.Duration
+	// Config 报警器配置
+	Config struct {
+		// CachedTasks 缓存任务数量，默认为 DefaultCachedTasks
+		CachedTasks int
+		// FlushInterval 刷新间隔，默认为 DefaultFlushInterval
+		FlushInterval time.Duration
+		// LarkConfig 飞书配置，如果不为 nil 则自动初始化飞书发送器
+		LarkConfig *LarkConfig
+		// 未来可扩展其他发送器配置
+		// DingTalkConfig *DingTalkConfig
+		// WechatConfig   *WechatConfig
 	}
 
+	// OptionFunc 配置函数
+	OptionFunc func(config *Config)
+
+	// Alarm 报警器实例
 	Alarm struct {
+		config   *Config
 		sender   *basicSender
 		executor *executors.BulkExecutor
+		mu       sync.RWMutex
 	}
 )
 
-var (
-	options option
-	alarm   *Alarm
-	once    sync.Once
-)
+// New 创建一个新的报警器实例
+func New(opts ...OptionFunc) (*Alarm, error) {
+	// 默认配置
+	config := &Config{
+		CachedTasks:   DefaultCachedTasks,
+		FlushInterval: DefaultFlushInterval,
+	}
 
-func SetUp(opts ...OptionFunc) *Alarm {
-	once.Do(func() {
+	// 应用配置函数
+	for _, opt := range opts {
+		opt(config)
+	}
 
-		alarm = &Alarm{
-			sender: new(basicSender),
-		}
+	alarm := &Alarm{
+		config: config,
+		sender: new(basicSender),
+	}
 
-		setSender(newLarkSender())
+	// 初始化 sender
+	if err := alarm.initSenders(); err != nil {
+		return nil, err
+	}
 
-		for _, opt := range opts {
-			opt(&options)
-		}
-		// apply ChunkExecutor options
-		var bulkOpts []executors.BulkOption
-		if options.cachedTasks > 0 {
-			bulkOpts = append(bulkOpts, executors.WithBulkTasks(options.cachedTasks))
-		}
-		if options.flushInterval > 0 {
-			bulkOpts = append(bulkOpts, executors.WithBulkInterval(options.flushInterval))
-		}
+	// 初始化 executor
+	alarm.initExecutor()
 
-		alarm.executor = executors.NewBulkExecutor(func(tasks []any) {
-			for _, task := range tasks {
-				if getSender() == nil {
-					logx.Errorf("alarm.getSender is nil default config not set")
-					return
-				}
-				if err := getSender().Send(task); err != nil {
-					logx.Errorf("alarm.Send task data %v  error %v", task, err)
-				}
-			}
-		}, bulkOpts...)
-	})
-
-	return alarm
+	return alarm, nil
 }
 
-func AppendSender(s Sender) {
-	SetUp()
-	os := alarm.sender.Load()
-	if os == nil {
-		setSender(s)
+// initSenders 初始化发送器
+func (a *Alarm) initSenders() error {
+	var senders []Sender
+
+	// 根据配置自动初始化飞书发送器
+	if a.config.LarkConfig != nil {
+		senders = append(senders, NewLarkSender(*a.config.LarkConfig))
+	}
+
+	// 未来可扩展其他发送器
+	// if a.config.DingTalkConfig != nil {
+	//     senders = append(senders, NewDingTalkSender(*a.config.DingTalkConfig))
+	// }
+	// if a.config.WechatConfig != nil {
+	//     senders = append(senders, NewWechatSender(*a.config.WechatConfig))
+	// }
+
+	// 设置发送器
+	if len(senders) == 0 {
+		return errors.New("alarm.initSenders no sender configured, please set LarkConfig or other sender config")
+	}
+
+	if len(senders) == 1 {
+		a.sender.Store(senders[0])
 	} else {
-		ocs, ok := os.(*comboSender)
-		if ok {
-			ocs.senders = append(ocs.senders, s)
-		} else {
-			ocs = &comboSender{
-				senders: []Sender{s, os},
+		a.sender.Store(&comboSender{senders: senders})
+	}
+
+	return nil
+}
+
+// initExecutor 初始化执行器
+func (a *Alarm) initExecutor() {
+	var bulkOpts []executors.BulkOption
+
+	if a.config.CachedTasks > 0 {
+		bulkOpts = append(bulkOpts, executors.WithBulkTasks(a.config.CachedTasks))
+	}
+	if a.config.FlushInterval > 0 {
+		bulkOpts = append(bulkOpts, executors.WithBulkInterval(a.config.FlushInterval))
+	}
+
+	a.executor = executors.NewBulkExecutor(func(tasks []any) {
+		sender := a.sender.Load()
+		if sender == nil {
+			logx.Error("alarm.BulkExecutor sender is nil")
+			return
+		}
+
+		for _, task := range tasks {
+			if err := sender.Send(task); err != nil {
+				logx.Errorf("alarm.BulkExecutor send failed, task=%v, error=%v", task, err)
 			}
 		}
-		setSender(ocs)
+	}, bulkOpts...)
+}
+
+// Send 发送报警消息（实例方法）
+func (a *Alarm) Send(data any) error {
+	if a.executor == nil {
+		return errors.New("alarm.Send executor not initialized")
+	}
+	return a.executor.Add(data)
+}
+
+// Append 添加发送器（实例方法）
+func (a *Alarm) Append(s Sender) {
+	a.mu.Lock()
+	defer a.mu.Unlock()
+
+	currentSender := a.sender.Load()
+	if currentSender == nil {
+		a.sender.Store(s)
+		return
+	}
+
+	// 如果已有 comboSender，直接追加
+	if cs, ok := currentSender.(*comboSender); ok {
+		cs.senders = append(cs.senders, s)
+		return
+	}
+
+	// 否则创建新的 comboSender
+	a.sender.Store(&comboSender{
+		senders: []Sender{currentSender, s},
+	})
+}
+
+// ===== 配置选项函数 =====
+
+// WithCachedTasks 设置缓存任务数量
+func WithCachedTasks(tasks int) OptionFunc {
+	return func(config *Config) {
+		config.CachedTasks = tasks
 	}
 }
-func setSender(s Sender) {
-	alarm.sender.Store(s)
+
+// WithFlushInterval 设置刷新间隔
+func WithFlushInterval(interval time.Duration) OptionFunc {
+	return func(config *Config) {
+		config.FlushInterval = interval
+	}
 }
 
-func getSender() Sender {
-	return alarm.sender.Load()
-}
-
-func Send(data any) error {
-	SetUp()
-	return alarm.executor.Add(data)
+// WithLarkConfig 设置飞书配置
+func WithLarkConfig(larkConfig LarkConfig) OptionFunc {
+	return func(config *Config) {
+		config.LarkConfig = &larkConfig
+	}
 }
