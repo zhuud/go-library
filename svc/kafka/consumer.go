@@ -3,7 +3,6 @@ package kafka
 import (
 	"context"
 	"encoding/json"
-	"fmt"
 	"log"
 	"strings"
 
@@ -48,6 +47,6 @@ func Consume(c kq.KqConf, consumerName string, handler kq.ConsumeHandler) {
 		serviceGroup.Add(mq)
 	}
 
-	log.Println(fmt.Sprintf("Starting Mq Server At %s, Topics: %v ...", c.Brokers, topics))
+	log.Printf("Starting Mq Server At %s, Topics: %v ...", c.Brokers, topics)
 	serviceGroup.Start()
 }
