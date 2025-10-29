@@ -2,7 +2,7 @@ package kafka
 
 import (
 	"context"
-	"encoding/json"
+	"github.com/zeromicro/go-zero/core/stat"
 	"log"
 	"strings"
 
@@ -37,12 +37,13 @@ func Consume(c kq.KqConf, consumerName string, handler kq.ConsumeHandler) {
 	topics := strings.Split(c.Topic, ",")
 	for _, topic := range topics {
 		c.Topic = topic
+		// 同一group 消费一份数据
 		c.Group = c.Name + ":" + consumerName
 
 		mq := kq.MustNewQueue(c, handler,
+			kq.WithMetrics(stat.NewMetrics(c.Group)),
 			kq.WithErrorHandler(func(ctx context.Context, msg kafka.Message, err error) {
-				mj, _ := json.Marshal(msg)
-				logx.WithContext(ctx).WithCallerSkip(1).Errorf("kafka.consume: %s \n, message: %s \n, error: %v", c.Group, string(mj), err)
+				logx.WithContext(ctx).WithCallerSkip(1).Errorf("kafka.consume: %s \n, message: %+v \n, error: %v", c.Group, msg, err)
 			}))
 		serviceGroup.Add(mq)
 	}
