@@ -20,17 +20,17 @@ type MutexLock struct {
 
 // AcquireMutexLock 获取分布式锁，支持自动释放
 // 返回锁对象，若加锁失败（已被占用）返回 (nil, nil)
-func AcquireMutexLock(ctx context.Context, r *redis.Redis, key string, seconds int) (*MutexLock, error) {
+func AcquireMutexLock(ctx context.Context, r *redis.Redis, key string, seconds int) (*MutexLock, bool, error) {
 	lockValue := GenUniqId()
 	ok, err := r.SetnxExCtx(ctx, key, lockValue, seconds)
 	if err != nil {
-		return nil, fmt.Errorf("utils.AcquireMutexLock.SetnxExCtx error %w", err)
+		return nil, false, fmt.Errorf("utils.AcquireMutexLock.SetnxExCtx error %w", err)
 	}
 	if !ok {
-		return nil, fmt.Errorf("utils.AcquireMutexLock.SetnxExCtx failed key %s", key)
+		return nil, false, nil
 	}
 
-	return &MutexLock{Key: key, Value: lockValue, Timeout: seconds}, nil
+	return &MutexLock{Key: key, Value: lockValue, Timeout: seconds}, true, nil
 }
 
 // Release 释放分布式锁（仅释放自己持有的锁）
