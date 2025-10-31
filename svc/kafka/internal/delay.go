@@ -22,15 +22,20 @@ const (
 	queueKey          = "{kafka:delay:queue}:%s:%d:%s"
 	delayQueueName    = "delayed"
 	reservedQueueName = "reserved"
+	queueKeyBucketNum = 10
 )
 
 var (
-	client            *redis.Redis
-	metrics           = stat.NewMetrics("kafka.delay")
-	queuePrefix       = ""
-	queueKeyBucketNum = 10
-	// 改动须确保 原先key消费完成 或者实现key迁移
-	queueGetBatchSize = -1
+	client  *redis.Redis
+	metrics = stat.NewMetrics("kafka.delay")
+	// 队列redis名称前缀
+	queuePrefix = ""
+	// 从队列中获取数据的批量大小
+	queueGetBatchSize = 1000
+	// 最大重试次数，默认 3 次
+	maxRetryAttempts = 3
+	// 重试延迟时间，默认 1 分钟
+	retryDelayDuration = time.Minute
 
 	//go:embed pop.lua
 	popLuaScript string
@@ -46,19 +51,38 @@ type (
 		Topic     string `json:"topic"`
 		Data      any    `json:"data"`
 		Timestamp int64  `json:"timestamp"`
-		Attempts  int    `json:"attempts"`
+		Attempts  int    `json:"attempts"` // 重试次数 重试1次就+1
 	}
 )
 
+// SetUp 设置延迟队列（使用默认重试配置）
 func SetUp(redis *redis.Redis, batchSize int, prefix string) {
+	SetUpWithRetry(redis, batchSize, prefix, 0, 0)
+}
+
+// SetUpWithRetry 设置延迟队列，支持配置重试参数
+func SetUpWithRetry(redis *redis.Redis, batchSize int, prefix string, maxAttempts int, retryDelay time.Duration) {
 	client = redis
-	queueGetBatchSize = batchSize
 	queuePrefix = prefix
+	queueGetBatchSize = batchSize
+
+	if maxAttempts > 0 {
+		maxRetryAttempts = maxAttempts
+	}
+	if retryDelay > 0 {
+		retryDelayDuration = retryDelay
+	}
 }
 
 func Push(ctx context.Context, topic string, data any, delayDuration time.Duration) error {
 	if client == nil {
 		return fmt.Errorf("kafka.delay.Push delay queue must setup before")
+	}
+	if len(topic) == 0 {
+		return fmt.Errorf("kafka.delay.Push topic must not be empty")
+	}
+	if delayDuration < time.Second || delayDuration > time.Hour*24*7 {
+		return fmt.Errorf("kafka.delay.Push delayDuration must be at least 1 second and at most 7 days")
 	}
 
 	ts := time.Now().Add(delayDuration).Unix()
@@ -66,6 +90,7 @@ func Push(ctx context.Context, topic string, data any, delayDuration time.Durati
 		Topic:     topic,
 		Data:      data,
 		Timestamp: ts,
+		Attempts:  0,
 	}
 	dj, err := json.Marshal(dd)
 	if err != nil {
@@ -121,41 +146,93 @@ func Pop() []string {
 }
 
 func SuccessAck(timestamp int64, taskJson string, startTime time.Duration) error {
+	// 逻辑上不会有这种情况
 	if len(taskJson) == 0 {
 		return fmt.Errorf("kafka.delay.SuccessAck taskJson is empty")
 	}
 
-	return retry.Do(func() error {
-		_, err := client.Zrem(fmtQueueKey(timestamp, reservedQueueName), taskJson)
-		// 监控qps 耗时
-		metrics.Add(stat.Task{
-			Duration: utils.Since(startTime),
-		})
-		return err
-	}, retry.Attempts(2), retry.Delay(100*time.Millisecond))
+	err := removeFromReserved(timestamp, taskJson)
+	recordMetrics(startTime, err != nil)
+
+	return err
 }
 
 func FailAck(timestamp int64, taskJson string, startTime time.Duration) error {
+	// 逻辑上不会有这种情况
 	if len(taskJson) == 0 {
 		return fmt.Errorf("kafka.delay.FailAck taskJson is empty")
 	}
 
-	return retry.Do(func() error {
+	// 解析当前任务数据
+	var delayData DelayData
+	err := json.Unmarshal([]byte(taskJson), &delayData)
+	// 逻辑上不会有这种情况
+	if err != nil {
+		logx.Errorf("kafka.delay.FailAck Unmarshal taskJson: %s, error: %v", taskJson, err)
+		_ = removeFromReserved(timestamp, taskJson)
+		recordMetrics(startTime, true)
+		return fmt.Errorf("kafka.delay.FailAck Unmarshal error: %w", err)
+	}
+
+	// 检查是否超过最大重试次数
+	if delayData.Attempts >= maxRetryAttempts {
+		logx.Errorf("kafka.delay.FailAck max retry attempts exceeded, topic: %s, attempts: %d, max: %d",
+			delayData.Topic, delayData.Attempts, maxRetryAttempts)
+		// 超过最大重试次数，直接删除原值，不再重试
+		err = removeFromReserved(timestamp, taskJson)
+		recordMetrics(startTime, true)
+		return err
+	}
+
+	// 增加重试次数并计算新的延迟时间
+	delayData.Attempts++
+	newTimestamp := time.Now().Add(retryDelayDuration).Unix()
+	delayData.Timestamp = newTimestamp
+
+	// 生成新的 taskJson（注意：内容已更新，与原 taskJson 不同）
+	newTaskJson, err := json.Marshal(delayData)
+	// 逻辑上不会有这种情况
+	if err != nil {
+		logx.Errorf("kafka.delay.FailAck Marshal delayData: %+v, error: %v", delayData, err)
+		recordMetrics(startTime, true)
+		return fmt.Errorf("kafka.delay.FailAck Marshal error: %w", err)
+	}
+
+	// 原子操作：删除旧值，添加新值
+	err = retry.Do(func() error {
 		_, err := client.ScriptRun(releaseScript,
 			[]string{
-				fmtQueueKey(timestamp, delayQueueName),
+				fmtQueueKey(newTimestamp, delayQueueName),
 				fmtQueueKey(timestamp, reservedQueueName),
 			}, []string{
-				taskJson,
-				cast.ToString(timestamp),
+				taskJson,                    // ARGV[1]: 旧的 taskJson（用于删除）
+				cast.ToString(newTimestamp), // ARGV[2]: 新的 timestamp
+				string(newTaskJson),         // ARGV[3]: 新的 taskJson（用于添加）
 			})
-		// 监控qps 耗时 失败次数
-		metrics.Add(stat.Task{
-			Duration: utils.Since(startTime),
-			Drop:     true,
-		})
+
 		return err
 	}, retry.Attempts(2), retry.Delay(100*time.Millisecond))
+
+	recordMetrics(startTime, true)
+
+	return err
+}
+
+// removeFromReserved 从 reserved 队列中删除任务
+func removeFromReserved(timestamp int64, taskJson string) error {
+	return retry.Do(func() error {
+		_, err := client.Zrem(fmtQueueKey(timestamp, reservedQueueName), taskJson)
+		return err
+	}, retry.Attempts(2), retry.Delay(100*time.Millisecond))
+}
+
+// recordMetrics 记录监控指标
+func recordMetrics(startTime time.Duration, drop bool) {
+	st := stat.Task{
+		Duration: utils.Since(startTime),
+		Drop:     drop,
+	}
+	metrics.Add(st)
 }
 
 func fmtQueueKey(timestamp int64, queueType string) string {
