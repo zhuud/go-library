@@ -43,7 +43,7 @@ func Consume(c kq.KqConf, consumerName string, handler kq.ConsumeHandler) {
 		mq := kq.MustNewQueue(c, handler,
 			kq.WithMetrics(stat.NewMetrics(c.Group)),
 			kq.WithErrorHandler(func(ctx context.Context, msg kafka.Message, err error) {
-				logx.WithContext(ctx).WithCallerSkip(1).Errorf("kafka.consume: %s \n, message: %+v \n, error: %v", c.Group, msg, err)
+				logx.WithContext(ctx).WithCallerSkip(1).Errorf("kafka.Consume %s ,\n message: %+v ,\n error: %v", c.Group, msg, err)
 			}))
 		serviceGroup.Add(mq)
 	}

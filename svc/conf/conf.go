@@ -17,14 +17,14 @@ func init() {
 func MustSetUp(c Conf) {
 	err := SetUp(c)
 	if err != nil {
-		log.Fatalf("conf.MustSetUp config file path not set error %v", err)
+		log.Fatalf("conf.MustSetUp config file path not set error: %v", err)
 	}
 }
 
 func SetUp(c Conf) error {
 	tfr, err := newFileReader(WithFile(c.FilePath))
 	if err != nil {
-		return fmt.Errorf("conf.SetUp.newFileReader error %w", err)
+		return fmt.Errorf("conf.SetUp.newFileReader error: %w", err)
 	}
 
 	AppendReader(tfr)

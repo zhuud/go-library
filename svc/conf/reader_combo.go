@@ -25,7 +25,7 @@ func (c *comboReader) Get(k string) (string, error) {
 	}
 
 	if len(errs) > 0 {
-		return "", fmt.Errorf("conf.Get key %s failed from all readers: %w", k, errors.Join(errs...))
+		return "", fmt.Errorf("conf.Get failed from all readers key: %s, errors: %w", k, errors.Join(errs...))
 	}
 	return "", nil
 }
@@ -42,7 +42,7 @@ func (c *comboReader) GetAny(k string, target any) error {
 	}
 
 	if len(errs) > 0 {
-		return fmt.Errorf("conf.GetAny key=%s failed from all readers: %w", k, errors.Join(errs...))
+		return fmt.Errorf("conf.GetAny failed from all readers key: %s, errors: %w", k, errors.Join(errs...))
 	}
 	return nil
 }

@@ -8,9 +8,13 @@ import (
 	"sync"
 	"time"
 
+	"github.com/avast/retry-go/v4"
 	"github.com/spf13/cast"
 	"github.com/zeromicro/go-zero/core/logx"
+	"github.com/zeromicro/go-zero/core/stat"
 	"github.com/zeromicro/go-zero/core/stores/redis"
+	"github.com/zeromicro/go-zero/core/threading"
+	"github.com/zhuud/go-library/utils"
 )
 
 const (
@@ -22,7 +26,7 @@ const (
 
 var (
 	client            *redis.Redis
-	mu                sync.Mutex
+	metrics           = stat.NewMetrics("kafka.delay")
 	queuePrefix       = ""
 	queueKeyBucketNum = 10
 	// 改动须确保 原先key消费完成 或者实现key迁移
@@ -39,11 +43,10 @@ var (
 
 type (
 	DelayData struct {
-		Ctx       any
 		Topic     string `json:"topic"`
 		Data      any    `json:"data"`
-		Attempts  int    `json:"attempts"`
 		Timestamp int64  `json:"timestamp"`
+		Attempts  int    `json:"attempts"`
 	}
 )
 
@@ -55,94 +58,105 @@ func SetUp(redis *redis.Redis, batchSize int, prefix string) {
 
 func Push(ctx context.Context, topic string, data any, delayDuration time.Duration) error {
 	if client == nil {
-		return fmt.Errorf("delay.Push delay queue must setup before")
+		return fmt.Errorf("kafka.delay.Push delay queue must setup before")
 	}
 
-	ts := time.Now().Local().Add(delayDuration).Unix()
+	ts := time.Now().Add(delayDuration).Unix()
 	dd := DelayData{
-		Ctx:       ctx,
 		Topic:     topic,
 		Data:      data,
 		Timestamp: ts,
 	}
 	dj, err := json.Marshal(dd)
 	if err != nil {
-		return fmt.Errorf("delay.Push Marshal error %w", err)
+		return fmt.Errorf("kafka.delay.Push Marshal error: %w", err)
 	}
 
 	_, err = client.ZaddCtx(ctx, fmtQueueKey(ts, delayQueueName), ts, string(dj))
 	if err != nil {
-		return fmt.Errorf("delay.Push ZaddCtx error %w", err)
+		return fmt.Errorf("kafka.delay.Push ZaddCtx error: %w", err)
 	}
 
 	return nil
 }
 
 func Pop() []string {
-	mu.Lock()
-	defer mu.Unlock()
-
-	ts := time.Now().Local().Unix()
+	ts := time.Now().Unix()
 
 	list := make([]string, 0)
 	if client == nil {
-		logx.Error("delay.Pop client nil")
+		logx.Error("kafka.delay.Pop client nil")
 		return list
 	}
-	for i := 0; i < queueKeyBucketNum; i++ {
 
-		data, err := client.ScriptRun(popScript,
-			[]string{
-				fmtQueueKey(int64(i), delayQueueName),
-				fmtQueueKey(int64(i), reservedQueueName),
-			}, []string{
-				cast.ToString(ts),
-				cast.ToString(queueGetBatchSize),
-			})
-		if err != nil {
-			logx.Errorf("delay.Pop ScriptRun error %v", err)
-			continue
-		}
-		item := cast.ToStringSlice(data)
-		if len(item) > 0 {
-			list = append(list, item...)
-		}
+	var mu sync.Mutex
+	group := threading.NewRoutineGroup()
+
+	for i := 0; i < queueKeyBucketNum; i++ {
+		bucket := i
+		group.Run(func() {
+			data, err := client.ScriptRun(popScript,
+				[]string{
+					fmtQueueKey(int64(bucket), delayQueueName),
+					fmtQueueKey(int64(bucket), reservedQueueName),
+				}, []string{
+					cast.ToString(ts),
+					cast.ToString(queueGetBatchSize),
+				})
+			if err != nil {
+				logx.Errorf("kafka.delay.Pop bucket: %d, ScriptRun error %v", bucket, err)
+				return
+			}
+			item := cast.ToStringSlice(data)
+			if len(item) > 0 {
+				mu.Lock()
+				list = append(list, item...)
+				mu.Unlock()
+			}
+		})
 	}
 
+	group.Wait()
 	return list
 }
 
-func SuccessAck(value string) error {
-	if len(value) == 0 {
-		return fmt.Errorf("delay.SuccessAck value is empty")
+func SuccessAck(timestamp int64, taskJson string, startTime time.Duration) error {
+	if len(taskJson) == 0 {
+		return fmt.Errorf("kafka.delay.SuccessAck taskJson is empty")
 	}
-	var data DelayData
-	_ = json.Unmarshal([]byte(value), &data)
 
-	_, err := client.Zrem(fmtQueueKey(data.Timestamp, reservedQueueName), value)
-	return err
-}
-
-func FailAck(value string) error {
-	if len(value) == 0 {
-		return fmt.Errorf("delay.SuccessAck value is empty")
-	}
-	var data DelayData
-	_ = json.Unmarshal([]byte(value), &data)
-
-	_, err := client.ScriptRun(releaseScript,
-		[]string{
-			fmtQueueKey(data.Timestamp, delayQueueName),
-			fmtQueueKey(data.Timestamp, reservedQueueName),
-		}, []string{
-			value,
-			cast.ToString(data.Timestamp),
+	return retry.Do(func() error {
+		_, err := client.Zrem(fmtQueueKey(timestamp, reservedQueueName), taskJson)
+		// 监控qps 耗时
+		metrics.Add(stat.Task{
+			Duration: utils.Since(startTime),
 		})
-
-	return err
+		return err
+	}, retry.Attempts(2), retry.Delay(100*time.Millisecond))
 }
 
-// TODO 监控 报警
+func FailAck(timestamp int64, taskJson string, startTime time.Duration) error {
+	if len(taskJson) == 0 {
+		return fmt.Errorf("kafka.delay.FailAck taskJson is empty")
+	}
+
+	return retry.Do(func() error {
+		_, err := client.ScriptRun(releaseScript,
+			[]string{
+				fmtQueueKey(timestamp, delayQueueName),
+				fmtQueueKey(timestamp, reservedQueueName),
+			}, []string{
+				taskJson,
+				cast.ToString(timestamp),
+			})
+		// 监控qps 耗时 失败次数
+		metrics.Add(stat.Task{
+			Duration: utils.Since(startTime),
+			Drop:     true,
+		})
+		return err
+	}, retry.Attempts(2), retry.Delay(100*time.Millisecond))
+}
 
 func fmtQueueKey(timestamp int64, queueType string) string {
 	d := int(timestamp % int64(queueKeyBucketNum))

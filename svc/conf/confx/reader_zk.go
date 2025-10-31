@@ -34,7 +34,7 @@ func NewZookeeperReader(zk *zookeeper.Client) conf.Reader {
 func (r *zookeeperReader) Get(k string) (string, error) {
 	v, err := r.handler.GetC(k)
 	if err != nil {
-		return "", fmt.Errorf("confx.zookeeperReader.Get error %w", err)
+		return "", fmt.Errorf("confx.zookeeperReader.Get error: %w", err)
 	}
 	return v, nil
 }
@@ -46,7 +46,7 @@ func (r *zookeeperReader) GetAny(k string, target any) error {
 
 	v, err := r.Get(k)
 	if err != nil {
-		return fmt.Errorf("confx.zookeeperReader.Get error %w", err)
+		return fmt.Errorf("confx.zookeeperReader.Get error: %w", err)
 	}
 	if len(v) == 0 {
 		return fmt.Errorf("confx.zookeeperReader.Get nil")
@@ -54,7 +54,7 @@ func (r *zookeeperReader) GetAny(k string, target any) error {
 
 	err = json.Unmarshal([]byte(v), target)
 	if err != nil {
-		return fmt.Errorf("confx.zookeeperReader.Unmarshal error %w", err)
+		return fmt.Errorf("confx.zookeeperReader.Unmarshal error: %w", err)
 	}
 	return nil
 }

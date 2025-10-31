@@ -43,10 +43,10 @@ else
 end`
 	res, err := rdb.EvalCtx(ctx, script, []string{l.Key}, l.Value)
 	if err != nil {
-		return fmt.Errorf("utils.mutexLock.Release.EvalCtx error %w", err)
+		return fmt.Errorf("utils.MutexLock.Release.EvalCtx error: %w", err)
 	}
 	if res == int64(0) {
-		return fmt.Errorf("utils.mutexLock.Release: lock not held or already released key %s", l.Key)
+		return fmt.Errorf("utils.MutexLock.Release lock not held or already released key: %s", l.Key)
 	}
 
 	return nil
@@ -62,10 +62,10 @@ else
 end`
 	res, err := rdb.EvalCtx(ctx, script, []string{l.Key}, l.Value, additional)
 	if err != nil {
-		return fmt.Errorf("utils.mutexLock.Extend.EvalCtx error: %w", err)
+		return fmt.Errorf("utils.MutexLock.Extend.EvalCtx error: %w", err)
 	}
 	if res == int64(0) {
-		return fmt.Errorf("utils.mutexLock.Extend: lock not held cannot extend key %s", l.Key)
+		return fmt.Errorf("utils.MutexLock.Extend lock not held cannot extend key: %s", l.Key)
 	}
 
 	return nil
@@ -80,7 +80,7 @@ func (l *MutexLock) StartAutoExtend(ctx context.Context, rdb *redis.Redis, inter
 	go func() {
 		defer func() {
 			if r := recover(); r != nil {
-				logx.WithContext(ctx).Errorf("utils.mutexLock.AutoExtend panic: %v, key=%s", r, l.Key)
+				logx.WithContext(ctx).Errorf("utils.MutexLock.AutoExtend key: %s, panic: %v", l.Key, r)
 			}
 		}()
 		ticker := time.NewTicker(interval)
@@ -89,7 +89,7 @@ func (l *MutexLock) StartAutoExtend(ctx context.Context, rdb *redis.Redis, inter
 			select {
 			case <-ticker.C:
 				if err := l.Extend(ctx, rdb, l.Timeout); err != nil {
-					logx.WithContext(ctx).Errorf("utils.mutexLock.AutoExtend failed: %v, key=%s", err, l.Key)
+					logx.WithContext(ctx).Errorf("utils.mutexLock.AutoExtend key: %s, failed: %v,", l.Key, err)
 				}
 			case <-l.stopCh:
 				return

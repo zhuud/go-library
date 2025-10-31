@@ -122,7 +122,7 @@ func (a *Alarm) initExecutor() {
 
 		for _, task := range tasks {
 			if err := sender.Send(task); err != nil {
-				logx.Errorf("alarm.BulkExecutor send failed, task=%v, error=%v", task, err)
+				logx.Errorf("alarm.BulkExecutor send failed, task: %v, error: %v", task, err)
 			}
 		}
 	}, bulkOpts...)

@@ -23,7 +23,7 @@ func (c *comboSender) Send(data any) error {
 
 	// 所有 sender 都要执行，收集所有错误
 	if len(errs) > 0 {
-		return fmt.Errorf("alarm.Send failed %d/%d senders: %w", len(errs), len(c.senders), errors.Join(errs...))
+		return fmt.Errorf("alarm.Send failed error/sender: %d/%d errors: %w", len(errs), len(c.senders), errors.Join(errs...))
 	}
 	return nil
 }

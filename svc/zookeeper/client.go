@@ -7,13 +7,12 @@ import (
 	"sync/atomic"
 	"time"
 
-	"github.com/zhuud/go-library/svc/zookeeper/intenal"
-
 	"github.com/go-zookeeper/zk"
 	"github.com/pkg/errors"
 	"github.com/zeromicro/go-zero/core/logx"
 	"github.com/zeromicro/go-zero/core/proc"
 	"github.com/zhuud/go-library/svc/conf"
+	"github.com/zhuud/go-library/svc/zookeeper/intenal"
 )
 
 type Client struct {
@@ -39,7 +38,7 @@ func RegisterAfterConnected(handler func()) {
 func MustNewZookeeperClient(servers ...string) *Client {
 	c, err := NewZookeeperClient(servers...)
 	if err != nil {
-		log.Fatalf("zookeeper.MustNewZookeeperClient error %v", err)
+		log.Fatalf("zookeeper.MustNewZookeeperClient error: %v", err)
 	}
 	return c
 }
@@ -68,7 +67,7 @@ func NewZookeeperClient(servers ...string) (*Client, error) {
 		err = waitSession(eventChan, 10)
 	}
 	if err != nil {
-		return nil, fmt.Errorf("zookeeper.NewZookeeperClient.Connect error %w", err)
+		return nil, fmt.Errorf("zookeeper.NewZookeeperClient.Connect error: %w", err)
 	}
 	client = &Client{conn: zkConn}
 
@@ -174,7 +173,7 @@ func (z *Client) debugModeRetry(err error) bool {
 		for {
 			time.Sleep(time.Millisecond * 1)
 			if conn.State() == zk.StateHasSession {
-				log.Println(fmt.Sprintf("zookeeper connect retry(有可能是因为断点导致连接中断), error:%v", err))
+				log.Println(fmt.Sprintf("zookeeper connect retry(有可能是因为断点导致连接中断) error: %v", err))
 				return true
 			}
 		}
@@ -223,5 +222,5 @@ type loggerWrapper struct {
 }
 
 func (l *loggerWrapper) Printf(s string, i ...any) {
-	logx.Infof("zookeeper: %s = %v", s, i)
+	logx.Infof("zookeeper.logger %s: %v", s, i)
 }

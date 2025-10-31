@@ -21,7 +21,7 @@ func (z *Client) GetC(key string) (string, error) {
 
 	data, _, events, err := z.GetW(key)
 	if err != nil {
-		return "", fmt.Errorf("zookeeper.GetC.GetW key %s  error %w ", key, err)
+		return "", fmt.Errorf("zookeeper.GetC.GetW key: %s, error: %w ", key, err)
 	}
 
 	zkCache.Store(key, string(data))
@@ -54,13 +54,13 @@ func (z *Client) GetChildC(key string) (map[string]string, error) {
 	data := make(map[string]string)
 	keys, _, events, err := z.ChildrenW(key)
 	if err != nil {
-		return data, fmt.Errorf("zookeeper.GetChildC.ChildrenW key %s  error %w ", key, err)
+		return data, fmt.Errorf("zookeeper.GetChildC.ChildrenW key: %s, error: %w ", key, err)
 	}
 
 	for _, childKey := range keys {
 		childData, _, err := z.Get(key + `/` + childKey)
 		if err != nil {
-			return data, fmt.Errorf("zookeeper.GetChildC.Get key %s/%s  error %w ", key, childKey, err)
+			return data, fmt.Errorf("zookeeper.GetChildC.Get key: %s/%s, error: %w ", key, childKey, err)
 		}
 		data[childKey] = string(childData)
 	}
@@ -102,7 +102,7 @@ func (z *Client) GetChildKeyC(key string) ([]string, error) {
 	//通过watch的方式获取并观察节点的变化
 	data, _, events, err := z.ChildrenW(key)
 	if err != nil {
-		return keys, fmt.Errorf("zookeeper.GetChildKeyC.ChildrenW key %s  error %w ", key, err)
+		return keys, fmt.Errorf("zookeeper.GetChildKeyC.ChildrenW key: %s, error: %w ", key, err)
 	}
 
 	zkChildKeyCache.Store(key, data)

@@ -98,7 +98,7 @@ func (c *Client) doRequestWithRetry(method, url string, queryArgs map[string]str
 	)
 
 	if err != nil {
-		return nil, fmt.Errorf("fasthttp.doRequestWithRetry request failed after %d retries: %w", retryConfig.MaxAttempts, err)
+		return nil, fmt.Errorf("fasthttp.doRequestWithRetry request failed after retries: %d, error: %w", retryConfig.MaxAttempts, err)
 	}
 
 	return result, nil

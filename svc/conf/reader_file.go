@@ -74,7 +74,7 @@ func (r *fileReader) GetAny(k string, target any) error {
 	if len(k) == 0 {
 		err := conf.Load(fc.FilePath, target)
 		if err != nil {
-			return fmt.Errorf("conf.fileReader.Load error %w", err)
+			return fmt.Errorf("conf.fileReader.Load error: %w", err)
 		}
 		return nil
 	}
@@ -87,14 +87,14 @@ func (r *fileReader) GetAny(k string, target any) error {
 	if sv, ok := v.(string); ok {
 		err := json.Unmarshal([]byte(sv), target)
 		if err != nil {
-			return fmt.Errorf("conf.fileReader.Unmarshal error %w", err)
+			return fmt.Errorf("conf.fileReader.Unmarshal error: %w", err)
 		}
 		return nil
 	}
 
 	err := mapstructure.WeakDecode(v, target)
 	if err != nil {
-		return fmt.Errorf("conf.fileReader.WeakDecode error %w", err)
+		return fmt.Errorf("conf.fileReader.WeakDecode error: %w", err)
 	}
 	return nil
 }

@@ -55,7 +55,7 @@ func NewBaseDao[M any, ID comparable](dbName, tableName, pkName string) *BaseDao
 	err := tmp.Statement.Parse(one)
 	if err != nil {
 		// 这里建议用日志而不是 panic，便于排查
-		logx.Errorf("gorm.NewBaseDao metadata parsing failed struct %v  error %v", one, err)
+		logx.Errorf("gorm.NewBaseDao metadata parsing failed struct: %+v, error: %v", one, err)
 	}
 	baseDao.tableSchema = tmp.Statement.Schema
 	for _, f := range tmp.Statement.Schema.Fields {
