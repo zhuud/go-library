@@ -157,7 +157,7 @@ func TestPop(t *testing.T) {
 
 	// 准备测试数据：推送一个已过期的消息
 	testData := map[string]interface{}{"test": "data"}
-	err := Push(testCtx, testTopic, testData, time.Second*-1) // 负延迟，立即过期
+	err := Push(testCtx, testTopic, testData, time.Second) // 负延迟，立即过期
 	if err != nil {
 		t.Fatalf("Push() 错误: %v", err)
 	}
