@@ -27,7 +27,7 @@ const (
 
 var (
 	client  *redis.Redis
-	metrics = stat.NewMetrics("kafka.delay")
+	metrics *stat.Metrics
 	// 队列redis名称前缀
 	queuePrefix = ""
 	// 从队列中获取数据的批量大小
@@ -63,6 +63,7 @@ func SetUp(redis *redis.Redis, batchSize int, prefix string) {
 // SetUpWithRetry 设置延迟队列，支持配置重试参数
 func SetUpWithRetry(redis *redis.Redis, batchSize int, prefix string, maxAttempts int, retryDelay time.Duration) {
 	client = redis
+	metrics = stat.NewMetrics("kafka.delay")
 	queuePrefix = prefix
 	queueGetBatchSize = batchSize
 
