@@ -32,7 +32,7 @@ var (
 func Push(ctx context.Context, topic string, data any, sync ...bool) error {
 	opts := []kq.PushOption{
 		kq.WithChunkSize(10240),
-		kq.WithFlushInterval(time.Millisecond * 20),
+		kq.WithFlushInterval(10 * time.Millisecond),
 	}
 	if len(sync) > 0 && sync[0] == true {
 		opts = []kq.PushOption{
