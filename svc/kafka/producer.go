@@ -30,13 +30,18 @@ var (
 )
 
 func Push(ctx context.Context, topic string, data any, sync ...bool) error {
-	opts := []kq.PushOption{
-		kq.WithChunkSize(10240),
-		kq.WithFlushInterval(10 * time.Millisecond),
-	}
-	if len(sync) > 0 && sync[0] == true {
+	var opts []kq.PushOption
+
+	// 同步推送模式：直接推送，不使用 ChunkExecutor
+	if len(sync) > 0 && sync[0] {
 		opts = []kq.PushOption{
 			kq.WithSyncPush(),
+		}
+	} else {
+		// 异步推送模式：使用 ChunkExecutor 批量处理
+		opts = []kq.PushOption{
+			kq.WithChunkSize(10240),
+			kq.WithFlushInterval(10 * time.Millisecond),
 		}
 	}
 	producer, err := NewProducer(topic, opts...)
