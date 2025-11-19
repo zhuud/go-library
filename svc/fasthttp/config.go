@@ -1,9 +1,11 @@
 package fasthttp
 
 import (
+	"context"
 	"time"
 
 	"github.com/avast/retry-go/v4"
+	"github.com/zeromicro/go-zero/core/breaker"
 )
 
 // 默认配置常量
@@ -34,13 +36,23 @@ type (
 		Concurrency int
 		// DNSCacheDuration 缓存解析的 TCP 地址的持续时间
 		DNSCacheDuration time.Duration
+		// Breaker 断路器（可选），如果为 nil 则不启用熔断
+		Breaker breaker.Breaker
 	}
 
 	// OptionFunc 配置函数
 	OptionFunc func(config *Conf)
 
-	// RetryConf 重试配置
-	RetryConf struct {
+	// RequestConfig 请求配置
+	RequestConf struct {
+		// Context 请求上下文
+		Context context.Context
+		// Retry 重试配置
+		Retry *retryConf
+	}
+
+	// retryConf 重试配置（内部类型，不导出）
+	retryConf struct {
 		// MaxAttempts 最大重试次数
 		MaxAttempts uint
 		// InitialDelay 初始延迟时间
@@ -50,4 +62,6 @@ type (
 		// DelayType 延迟类型
 		DelayType retry.DelayTypeFunc
 	}
+	// RequestOptionFunc 请求配置函数
+	RequestOptionFunc func(config *RequestConf)
 )
