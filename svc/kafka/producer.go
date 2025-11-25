@@ -40,7 +40,7 @@ func Push(ctx context.Context, topic string, data any, sync ...bool) error {
 	} else {
 		// 异步推送模式：使用 ChunkExecutor 批量处理
 		opts = []kq.PushOption{
-			kq.WithChunkSize(10240),
+			kq.WithChunkSize(1024 * 1024 * 10),
 			kq.WithFlushInterval(10 * time.Millisecond),
 		}
 	}
