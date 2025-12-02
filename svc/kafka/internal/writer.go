@@ -23,9 +23,9 @@ type (
 		WriteMessages(ctx context.Context, msgs ...kafka.Message) error
 	}
 
-	PushOption func(options *pushOptions)
+	PushOptionFunc func(config *pushConf)
 
-	pushOptions struct {
+	pushConf struct {
 		// kafka.Writer options
 		allowAutoTopicCreation bool
 		balancer               kafka.Balancer
@@ -53,7 +53,7 @@ type (
 )
 
 // NewWriter returns a Writer with the given Kafka addresses and topic.
-func NewWriter(addrs []string, topic string, opts ...PushOption) *Writer {
+func NewWriter(addrs []string, topic string, opts ...PushOptionFunc) *Writer {
 	// 创建 logger 实例
 	infoLogger := newWriterLogger(topic)
 	errorLogger := newWriterErrorLogger(topic)
@@ -70,53 +70,53 @@ func NewWriter(addrs []string, topic string, opts ...PushOption) *Writer {
 		ErrorLogger:  errorLogger,
 	}
 
-	var options pushOptions
+	var config pushConf
 	for _, opt := range opts {
-		opt(&options)
+		opt(&config)
 	}
 
-	producer.AllowAutoTopicCreation = options.allowAutoTopicCreation
-	producer.Async = options.async
+	producer.AllowAutoTopicCreation = config.allowAutoTopicCreation
+	producer.Async = config.async
 
 	// apply kafka.Writer options (only set if explicitly configured)
-	if options.balancer != nil {
-		producer.Balancer = options.balancer
+	if config.balancer != nil {
+		producer.Balancer = config.balancer
 	}
-	if options.batchSize > 0 {
-		producer.BatchSize = options.batchSize
+	if config.batchSize > 0 {
+		producer.BatchSize = config.batchSize
 	}
-	if options.batchBytes > 0 {
-		producer.BatchBytes = options.batchBytes
+	if config.batchBytes > 0 {
+		producer.BatchBytes = config.batchBytes
 	}
-	if options.batchTimeout > 0 {
-		producer.BatchTimeout = options.batchTimeout
+	if config.batchTimeout > 0 {
+		producer.BatchTimeout = config.batchTimeout
 	}
-	if options.requiredAcks != 0 {
-		producer.RequiredAcks = options.requiredAcks
+	if config.requiredAcks != 0 {
+		producer.RequiredAcks = config.requiredAcks
 	}
-	if options.readTimeout > 0 {
-		producer.ReadTimeout = options.readTimeout
+	if config.readTimeout > 0 {
+		producer.ReadTimeout = config.readTimeout
 	}
-	if options.writeTimeout > 0 {
-		producer.WriteTimeout = options.writeTimeout
+	if config.writeTimeout > 0 {
+		producer.WriteTimeout = config.writeTimeout
 	}
-	if options.maxAttempts > 0 {
-		producer.MaxAttempts = options.maxAttempts
+	if config.maxAttempts > 0 {
+		producer.MaxAttempts = config.maxAttempts
 	}
-	if options.compression != 0 {
-		producer.Compression = options.compression
+	if config.compression != 0 {
+		producer.Compression = config.compression
 	}
 
 	// 只有当 completion 被显式设置时才覆盖默认值
-	if options.completion != nil {
-		producer.Completion = options.completion
+	if config.completion != nil {
+		producer.Completion = config.completion
 	}
 
 	return &Writer{
 		producer: producer,
 		topic:    topic,
 		metrics:  metrics,
-		breaker:  options.breaker, // 使用配置中的 breaker，如果为 nil 则不启用熔断
+		breaker:  config.breaker, // 使用配置中的 breaker，如果为 nil 则不启用熔断
 	}
 }
 
@@ -159,79 +159,79 @@ func (w *Writer) PushWithKey(ctx context.Context, key, v string) error {
 }
 
 // WithAllowAutoTopicCreation allows the Writer to create the given topic if it does not exist.
-func WithAllowAutoTopicCreation() PushOption {
-	return func(options *pushOptions) {
-		options.allowAutoTopicCreation = true
+func WithAllowAutoTopicCreation() PushOptionFunc {
+	return func(config *pushConf) {
+		config.allowAutoTopicCreation = true
 	}
 }
 
 // WithBalancer customizes the Writer with the given balancer.
-func WithBalancer(balancer kafka.Balancer) PushOption {
-	return func(options *pushOptions) {
-		options.balancer = balancer
+func WithBalancer(balancer kafka.Balancer) PushOptionFunc {
+	return func(config *pushConf) {
+		config.balancer = balancer
 	}
 }
 
 // WithBatchSize customizes the Writer with the given batch size.
-func WithBatchSize(size int) PushOption {
-	return func(options *pushOptions) {
-		options.batchSize = size
+func WithBatchSize(size int) PushOptionFunc {
+	return func(config *pushConf) {
+		config.batchSize = size
 	}
 }
 
 // WithBatchTimeout customizes the Writer with the given batch timeout.
-func WithBatchTimeout(timeout time.Duration) PushOption {
-	return func(options *pushOptions) {
-		options.batchTimeout = timeout
+func WithBatchTimeout(timeout time.Duration) PushOptionFunc {
+	return func(config *pushConf) {
+		config.batchTimeout = timeout
 	}
 }
 
 // WithBatchBytes customizes the Writer with the given batch bytes.
-func WithBatchBytes(bytes int64) PushOption {
-	return func(options *pushOptions) {
-		options.batchBytes = bytes
+func WithBatchBytes(bytes int64) PushOptionFunc {
+	return func(config *pushConf) {
+		config.batchBytes = bytes
 	}
 }
 
 // WithAsync enables async push mode (disables synchronous push).
-func WithAsync(async bool) PushOption {
-	return func(options *pushOptions) {
-		options.async = async
+func WithAsync(async bool) PushOptionFunc {
+	return func(config *pushConf) {
+		config.async = async
 	}
 }
 
 // WithRequiredAcks customizes the Writer with the given required acks.
-func WithRequiredAcks(acks kafka.RequiredAcks) PushOption {
-	return func(options *pushOptions) {
-		options.requiredAcks = acks
+func WithRequiredAcks(acks kafka.RequiredAcks) PushOptionFunc {
+	return func(config *pushConf) {
+		config.requiredAcks = acks
 	}
 }
 
 // WithReadTimeout customizes the Writer with the given read timeout.
-func WithReadTimeout(timeout time.Duration) PushOption {
-	return func(options *pushOptions) {
-		options.readTimeout = timeout
+func WithReadTimeout(timeout time.Duration) PushOptionFunc {
+	return func(config *pushConf) {
+		config.readTimeout = timeout
 	}
 }
 
 // WithWriteTimeout customizes the Writer with the given write timeout.
-func WithWriteTimeout(timeout time.Duration) PushOption {
-	return func(options *pushOptions) {
-		options.writeTimeout = timeout
+func WithWriteTimeout(timeout time.Duration) PushOptionFunc {
+	return func(config *pushConf) {
+		config.writeTimeout = timeout
 	}
 }
 
 // WithMaxAttempts customizes the Writer with the given max attempts.
-func WithMaxAttempts(attempts int) PushOption {
-	return func(options *pushOptions) {
-		options.maxAttempts = attempts
+func WithMaxAttempts(attempts int) PushOptionFunc {
+	return func(config *pushConf) {
+		config.maxAttempts = attempts
 	}
 }
 
 // WithCompression customizes the Writer with the given compression.
-func WithCompression(compression kafka.Compression) PushOption {
-	return func(options *pushOptions) {
-		options.compression = compression
+func WithCompression(compression kafka.Compression) PushOptionFunc {
+	return func(config *pushConf) {
+		config.compression = compression
 	}
 }
 
@@ -239,16 +239,16 @@ func WithCompression(compression kafka.Compression) PushOption {
 // This callback is called when messages are successfully delivered or failed.
 // If async mode is enabled and no completion callback is provided, a default
 // callback that logs with logx will be used.
-func WithCompletion(completion func(messages []kafka.Message, err error)) PushOption {
-	return func(options *pushOptions) {
-		options.completion = completion
+func WithCompletion(completion func(messages []kafka.Message, err error)) PushOptionFunc {
+	return func(config *pushConf) {
+		config.completion = completion
 	}
 }
 
 // WithBreaker 设置断路器（可选）
 // 如果不设置，则不启用熔断功能
-func WithBreaker(brk breaker.Breaker) PushOption {
-	return func(options *pushOptions) {
-		options.breaker = brk
+func WithBreaker(brk breaker.Breaker) PushOptionFunc {
+	return func(config *pushConf) {
+		config.breaker = brk
 	}
 }

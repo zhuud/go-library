@@ -10,8 +10,8 @@ import (
 var (
 	rootCmd = &cobra.Command{
 		Use:     "run",
-		Short:   "go run main.go [-f config file] [cmd | consumer]",
-		Long:    "go run main.go [-f config file] [cmd | consumer]",
+		Short:   "go run main.go [-f config file]",
+		Long:    "go run main.go [-f config file] [cmdxxx | consumerxxx]",
 		Example: "go run main.go -f etc/config.test.yaml | go run main.go -f etc/config.test.yaml cmdxxx | go run main.go -f etc/config.test.yaml consumerxxx",
 	}
 )

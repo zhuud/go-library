@@ -3,13 +3,15 @@ package conf
 import (
 	"encoding/json"
 	"fmt"
+	"sync"
 )
 
 type envReader struct {
 }
 
 var (
-	er *envReader
+	er   *envReader
+	erMu sync.Mutex
 )
 
 // env
@@ -17,9 +19,16 @@ func newEnvReader() Reader {
 	if er != nil {
 		return er
 	}
-	rmu.Lock()
-	defer rmu.Unlock()
-	return &envReader{}
+	erMu.Lock()
+	defer erMu.Unlock()
+
+	// 双重检查
+	if er != nil {
+		return er
+	}
+
+	er = &envReader{}
+	return er
 }
 
 func (r *envReader) Get(k string) (string, error) {
@@ -41,4 +50,8 @@ func (r *envReader) GetAny(k string, target any) error {
 		return fmt.Errorf("conf.envReader.GetAny error: %w", err)
 	}
 	return nil
+}
+
+func (r *envReader) Name() string {
+	return "env"
 }

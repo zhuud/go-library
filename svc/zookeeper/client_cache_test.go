@@ -10,3 +10,4 @@ func Test_GetC(t *testing.T) {
 	v, err := z.GetC("/db_wechat")
 	log.Println(v, err)
 }
+

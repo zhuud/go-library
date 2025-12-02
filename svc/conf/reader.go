@@ -1,33 +1,7 @@
 package conf
 
-import (
-	"sync"
-)
+import "github.com/zhuud/go-library/svc/conf/internal"
 
-type (
-	Reader interface {
-		Get(k string) (string, error)
-		GetAny(k string, target any) error
-	}
-
-	basicReader struct {
-		reader Reader
-		mu     sync.RWMutex
-	}
-)
-
-var (
-	rmu sync.RWMutex
-)
-
-func (r *basicReader) Load() Reader {
-	r.mu.RLock()
-	defer r.mu.RUnlock()
-	return r.reader
-}
-
-func (r *basicReader) Store(v Reader) {
-	r.mu.Lock()
-	defer r.mu.Unlock()
-	r.reader = v
-}
+// Reader 读取器接口，外部可以实现此接口来自定义读取器
+// 这是 internal.Reader 的别名，保持 API 兼容性
+type Reader = internal.Reader

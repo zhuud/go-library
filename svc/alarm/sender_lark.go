@@ -25,8 +25,8 @@ type (
 		Content     string // 消息内容（必填）
 	}
 
-	// LarkConfig 飞书配置
-	LarkConfig struct {
+	// LarkConf 飞书配置
+	LarkConf struct {
 		AppId     string // 应用 ID
 		AppSecret string // 应用密钥
 	}
@@ -38,7 +38,7 @@ type (
 )
 
 // NewLarkSender 创建飞书发送器
-func NewLarkSender(config LarkConfig) Sender {
+func NewLarkSender(config LarkConf) Sender {
 	// 创建飞书客户端
 	client := lark.NewClient(
 		config.AppId,
@@ -82,9 +82,8 @@ func (s *larkSender) Send(data any) error {
 				larkim.NewCreateMessageReqBodyBuilder().
 					ReceiveId(msg.ReceiveId).
 					MsgType(msg.MsgType).
-					// // 消息内容，json结构序列化后的字符串。不同msg_type对应不同内容。消息类型 包括：text、post、image、file、audio、media、sticker、interactive、share_chat、share_user等，具体格式说明参考：[发送消息Content](https://open.feishu.cn/document/uAjLw4CM/ukTMukTMukTM/im-v1/message/create_json);;<b>请求体大小限制</b>：;- 文本消息请求体最大不能超过150KB;- 卡片及富文本消息请求体最大不能超过30KB
-					////
-					////示例值：{\"text\":\"<at user_id=\\\"ou_155184d1e73cbfb8973e5a9e698e74f2\\\">Tom</at> test content\"}
+					// 消息内容，json结构序列化后的字符串。不同msg_type对应不同内容。消息类型 包括：text、post、image、file、audio、media、sticker、interactive、share_chat、share_user等，具体格式说明参考：[发送消息Content](https://open.feishu.cn/document/uAjLw4CM/ukTMukTMukTM/im-v1/message/create_json);;<b>请求体大小限制</b>：;- 文本消息请求体最大不能超过150KB;- 卡片及富文本消息请求体最大不能超过30KB
+					//示例值：{\"text\":\"<at user_id=\\\"ou_155184d1e73cbfb8973e5a9e698e74f2\\\">Tom</at> test content\"}
 					Content(cast.ToString(msg.Content)).
 					Build(),
 			).Build(),

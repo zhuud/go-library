@@ -3,6 +3,7 @@ package conf
 import (
 	"encoding/json"
 	"fmt"
+	"sync"
 
 	"github.com/mitchellh/mapstructure"
 	"github.com/spf13/viper"
@@ -11,10 +12,10 @@ import (
 )
 
 type (
-	// FileOptionFunc defines the method to customize the file reader.
-	FileOptionFunc func(config *fileConfig)
+	// fileOptionFunc defines the method to customize the file reader.
+	fileOptionFunc func(config *fileConf)
 
-	fileConfig struct {
+	fileConf struct {
 		FilePath string
 	}
 
@@ -24,45 +25,48 @@ type (
 )
 
 var (
-	fc fileConfig
-	fr *fileReader
+	fr   *fileReader
+	frMu sync.Mutex
 )
 
 // file
-func newFileReader(opts ...FileOptionFunc) (Reader, error) {
+func newFileReader(opts ...fileOptionFunc) (Reader, error) {
 	if fr != nil {
 		return fr, nil
 	}
-	rmu.Lock()
-	defer rmu.Unlock()
+	frMu.Lock()
+	defer frMu.Unlock()
 
-	handleOptions(opts)
-
-	if len(fc.FilePath) == 0 {
-		wd := internal.WorkingDir()
-		fc.FilePath = fmt.Sprintf(`%s/etc/config.%s.yaml`, wd, Env())
+	// 双重检查
+	if fr != nil {
+		return fr, nil
 	}
 
-	viper.SetConfigFile(fc.FilePath)
+	var config fileConf
+	for _, opt := range opts {
+		opt(&config)
+	}
+
+	if len(config.FilePath) == 0 {
+		wd := internal.WorkingDir()
+		config.FilePath = fmt.Sprintf(`%s/etc/config.%s.yaml`, wd, Env())
+	}
+
+	viper.SetConfigFile(config.FilePath)
 	err := viper.ReadInConfig()
 	if err != nil {
 		return nil, err
 	}
 
-	return &fileReader{
+	fr = &fileReader{
 		handler: viper.GetViper(),
-	}, nil
-}
-
-func handleOptions(opts []FileOptionFunc) {
-	for _, opt := range opts {
-		opt(&fc)
 	}
+	return fr, nil
 }
 
-func WithFile(filePath string) FileOptionFunc {
-	return func(config *fileConfig) {
-		config.FilePath = filePath
+func withFilePath(filePath string) fileOptionFunc {
+	return func(options *fileConf) {
+		options.FilePath = filePath
 	}
 }
 
@@ -72,7 +76,7 @@ func (r *fileReader) Get(k string) (string, error) {
 
 func (r *fileReader) GetAny(k string, target any) error {
 	if len(k) == 0 {
-		err := conf.Load(fc.FilePath, target)
+		err := conf.Load(r.handler.ConfigFileUsed(), target)
 		if err != nil {
 			return fmt.Errorf("conf.fileReader.Load error: %w", err)
 		}
@@ -97,4 +101,8 @@ func (r *fileReader) GetAny(k string, target any) error {
 		return fmt.Errorf("conf.fileReader.WeakDecode error: %w", err)
 	}
 	return nil
+}
+
+func (r *fileReader) Name() string {
+	return "file"
 }

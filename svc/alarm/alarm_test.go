@@ -10,7 +10,7 @@ import (
 func Test_Send(t *testing.T) {
 	// 创建报警器实例（自动初始化飞书发送器）
 	alarmInstance, err := New(
-		WithLarkConfig(LarkConfig{
+		WithLarkConfig(LarkConf{
 			AppId:     "xxxxxx",
 			AppSecret: "xxxxxx",
 		}),

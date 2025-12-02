@@ -23,11 +23,11 @@ type (
 		CachedTasks int
 		// FlushInterval 刷新间隔，默认为 DefaultFlushInterval
 		FlushInterval time.Duration
-		// LarkConfig 飞书配置，如果不为 nil 则自动初始化飞书发送器
-		LarkConfig *LarkConfig
+		// Lark 飞书配置，如果不为 nil 则自动初始化飞书发送器
+		Lark *LarkConf
 		// 未来可扩展其他发送器配置
-		// DingTalkConfig *DingTalkConfig
-		// WechatConfig   *WechatConfig
+		// DingTalk *DingTalkConf
+		// WechatConf   *WechatConf
 	}
 
 	// OptionFunc 配置函数
@@ -78,8 +78,8 @@ func (a *Alarm) initSenders() error {
 	var senders []Sender
 
 	// 根据配置自动初始化飞书发送器
-	if a.config.LarkConfig != nil {
-		senders = append(senders, NewLarkSender(*a.config.LarkConfig))
+	if a.config.Lark != nil {
+		senders = append(senders, NewLarkSender(*a.config.Lark))
 	}
 
 	// 未来可扩展其他发送器
@@ -92,7 +92,7 @@ func (a *Alarm) initSenders() error {
 
 	// 设置发送器
 	if len(senders) == 0 {
-		return errors.New("alarm.initSenders no sender configured, please set LarkConfig or other sender config")
+		return errors.New("alarm.initSenders no sender configured, please set LarkConf or other sender config")
 	}
 
 	if len(senders) == 1 {
@@ -176,8 +176,8 @@ func WithFlushInterval(interval time.Duration) OptionFunc {
 }
 
 // WithLarkConfig 设置飞书配置
-func WithLarkConfig(larkConfig LarkConfig) OptionFunc {
+func WithLarkConfig(larkConfig LarkConf) OptionFunc {
 	return func(config *Conf) {
-		config.LarkConfig = &larkConfig
+		config.Lark = &larkConfig
 	}
 }
