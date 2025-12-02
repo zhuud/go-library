@@ -3,7 +3,9 @@ package zookeeper
 import (
 	"fmt"
 	"sync"
+	"time"
 
+	"github.com/avast/retry-go/v4"
 	"github.com/cornelk/hashmap"
 )
 
@@ -28,11 +30,11 @@ func (z *Client) GetC(key string) (string, error) {
 	go func() {
 		for {
 			<-events
-			data, _, events, err = z.GetW(key)
-			// 重试
-			if err != nil {
-				data, _, events, err = z.GetW(key)
-			}
+			err = retry.Do(func() error {
+				var retryErr error
+				data, _, events, retryErr = z.GetW(key)
+				return retryErr
+			}, retry.Attempts(2), retry.Delay(10*time.Millisecond))
 			// 重试后还失败 删除此key 结束watch 等待下次重新获取
 			if err != nil {
 				zkCache.Delete(key)
@@ -72,11 +74,12 @@ func (z *Client) GetChildC(key string) (map[string]string, error) {
 			data = make(map[string]string, len(keys))
 			if err == nil {
 				for _, childKey := range keys {
-					childData, _, err := z.Get(key + `/` + childKey)
-					// 重试
-					if err != nil {
-						childData, _, err = z.Get(key + `/` + childKey)
-					}
+					var childData []byte
+					err = retry.Do(func() error {
+						var retryErr error
+						childData, _, retryErr = z.Get(key + `/` + childKey)
+						return retryErr
+					}, retry.Attempts(2), retry.Delay(10*time.Millisecond))
 					// 重试后还失败 删除此key 结束watch 等待下次重新获取
 					if err != nil {
 						zkChildCache.Del(key)
@@ -109,12 +112,11 @@ func (z *Client) GetChildKeyC(key string) ([]string, error) {
 	go func() {
 		for {
 			<-events
-			data, _, events, err = z.ChildrenW(key)
-
-			// 重试
-			if err != nil {
-				data, _, events, err = z.ChildrenW(key)
-			}
+			err = retry.Do(func() error {
+				var retryErr error
+				data, _, events, retryErr = z.ChildrenW(key)
+				return retryErr
+			}, retry.Attempts(2), retry.Delay(10*time.Millisecond))
 			// 重试后还失败 删除此key 结束watch 等待下次重新获取
 			if err != nil {
 				zkChildKeyCache.Delete(key)

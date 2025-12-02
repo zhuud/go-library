@@ -6,7 +6,7 @@ import (
 	"time"
 
 	"github.com/zeromicro/go-zero/core/executors"
-	"github.com/zeromicro/go-zero/core/logx"
+	"github.com/zhuud/go-library/svc/alarm/internal"
 )
 
 const (
@@ -36,8 +36,9 @@ type (
 	// Alarm 报警器实例
 	Alarm struct {
 		config   *Conf
-		sender   *basicSender
+		sender   *internal.BasicSender
 		executor *executors.BulkExecutor
+		logger   internal.AlarmLogger
 		mu       sync.RWMutex
 	}
 )
@@ -57,7 +58,8 @@ func New(opts ...OptionFunc) (*Alarm, error) {
 
 	alarm := &Alarm{
 		config: config,
-		sender: new(basicSender),
+		sender: internal.NewBasicSender(),
+		logger: internal.NewAlarmLogger(),
 	}
 
 	// 初始化 sender
@@ -96,7 +98,7 @@ func (a *Alarm) initSenders() error {
 	if len(senders) == 1 {
 		a.sender.Store(senders[0])
 	} else {
-		a.sender.Store(&comboSender{senders: senders})
+		a.sender.Store(internal.NewComboSender(senders))
 	}
 
 	return nil
@@ -116,13 +118,13 @@ func (a *Alarm) initExecutor() {
 	a.executor = executors.NewBulkExecutor(func(tasks []any) {
 		sender := a.sender.Load()
 		if sender == nil {
-			logx.Error("alarm.BulkExecutor sender is nil")
+			a.logger.Errorf("alarm.BulkExecutor sender is nil")
 			return
 		}
 
 		for _, task := range tasks {
 			if err := sender.Send(task); err != nil {
-				logx.Errorf("alarm.BulkExecutor send failed, task: %v, error: %v", task, err)
+				a.logger.Errorf("alarm.BulkExecutor send failed, task: %v, error: %v", task, err)
 			}
 		}
 	}, bulkOpts...)
@@ -147,16 +149,14 @@ func (a *Alarm) Append(s Sender) {
 		return
 	}
 
-	// 如果已有 comboSender，直接追加
-	if cs, ok := currentSender.(*comboSender); ok {
-		cs.senders = append(cs.senders, s)
+	// 如果已有 ComboSender，直接追加
+	if cs, ok := currentSender.(*internal.ComboSender); ok {
+		cs.Senders = append(cs.Senders, s)
 		return
 	}
 
-	// 否则创建新的 comboSender
-	a.sender.Store(&comboSender{
-		senders: []Sender{currentSender, s},
-	})
+	// 否则创建新的 ComboSender
+	a.sender.Store(internal.NewComboSender([]Sender{currentSender, s}))
 }
 
 // ===== 配置选项函数 =====

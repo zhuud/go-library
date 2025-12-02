@@ -1,32 +1,7 @@
 package alarm
 
-import (
-	"sync"
-)
+import "github.com/zhuud/go-library/svc/alarm/internal"
 
-type (
-	Sender interface {
-		Send(data any) error
-	}
-
-	basicSender struct {
-		sender Sender
-		mu     sync.RWMutex
-	}
-)
-
-var (
-	smu sync.RWMutex
-)
-
-func (s *basicSender) Load() Sender {
-	s.mu.RLock()
-	defer s.mu.RUnlock()
-	return s.sender
-}
-
-func (s *basicSender) Store(v Sender) {
-	s.mu.Lock()
-	defer s.mu.Unlock()
-	s.sender = v
-}
+// Sender 发送器接口，外部可以实现此接口来自定义发送器
+// 这是 internal.Sender 的别名，保持 API 兼容性
+type Sender = internal.Sender

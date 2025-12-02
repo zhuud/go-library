@@ -6,7 +6,7 @@ import (
 	"strings"
 	"sync/atomic"
 
-	"github.com/zeromicro/go-zero/core/logx"
+	"github.com/zhuud/go-library/svc/gorm/internal"
 	"gorm.io/gorm"
 	"gorm.io/gorm/schema"
 )
@@ -39,6 +39,7 @@ type BaseDao[M any, ID comparable] struct {
 	pkName      string
 	tableSchema *schema.Schema
 	pkSchema    *schema.Field
+	logger      internal.GormLogger
 }
 
 func NewBaseDao[M any, ID comparable](dbName, tableName, pkName string) *BaseDao[M, ID] {
@@ -47,6 +48,7 @@ func NewBaseDao[M any, ID comparable](dbName, tableName, pkName string) *BaseDao
 		db:        db,
 		tableName: tableName,
 		pkName:    pkName,
+		logger:    internal.NewGormLogger(dbName, tableName),
 	}
 
 	// 解析表结构元数据
@@ -55,7 +57,7 @@ func NewBaseDao[M any, ID comparable](dbName, tableName, pkName string) *BaseDao
 	err := tmp.Statement.Parse(one)
 	if err != nil {
 		// 这里建议用日志而不是 panic，便于排查
-		logx.Errorf("gorm.NewBaseDao metadata parsing failed struct: %+v, error: %v", one, err)
+		baseDao.logger.Errorf("gorm.NewBaseDao metadata parsing failed struct: %+v, error: %v", one, err)
 	}
 	baseDao.tableSchema = tmp.Statement.Schema
 	for _, f := range tmp.Statement.Schema.Fields {

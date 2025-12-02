@@ -1,4 +1,4 @@
-package intenal
+package internal
 
 import (
 	"fmt"

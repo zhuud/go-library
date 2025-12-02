@@ -10,7 +10,6 @@ import (
 
 	"github.com/avast/retry-go/v4"
 	"github.com/spf13/cast"
-	"github.com/zeromicro/go-zero/core/logx"
 	"github.com/zeromicro/go-zero/core/stat"
 	"github.com/zeromicro/go-zero/core/stores/redis"
 	"github.com/zeromicro/go-zero/core/threading"
@@ -44,7 +43,15 @@ var (
 	//go:embed release.lua
 	releaseLuaScript string
 	releaseScript    = redis.NewScript(releaseLuaScript)
+
+	// delayLogger 是 kafka.delay 模块的 logger
+	delayLoggerImp = newDelayLogger()
 )
+
+// DelayLogger 返回 delayLogger，供外部包使用
+func DelayLogger() *delayLogger {
+	return delayLoggerImp
+}
 
 type (
 	DelayData struct {
@@ -111,7 +118,7 @@ func Pop() []string {
 
 	list := make([]string, 0)
 	if client == nil {
-		logx.Error("kafka.delay.Pop client nil")
+		delayLoggerImp.Errorf("kafka.delay.Pop client nil")
 		return list
 	}
 
@@ -130,7 +137,7 @@ func Pop() []string {
 					cast.ToString(queueGetBatchSize),
 				})
 			if err != nil {
-				logx.Errorf("kafka.delay.Pop bucket: %d, ScriptRun error %v", bucket, err)
+				delayLoggerImp.Errorf("kafka.delay.Pop bucket: %d, ScriptRun error %v", bucket, err)
 				return
 			}
 			item := cast.ToStringSlice(data)
@@ -169,7 +176,7 @@ func FailAck(timestamp int64, taskJson string, startTime time.Duration) error {
 	err := json.Unmarshal([]byte(taskJson), &delayData)
 	// 逻辑上不会有这种情况
 	if err != nil {
-		logx.Errorf("kafka.delay.FailAck Unmarshal taskJson: %s, error: %v", taskJson, err)
+		delayLoggerImp.Errorf("kafka.delay.FailAck Unmarshal taskJson: %s, error: %v", taskJson, err)
 		_ = removeFromReserved(timestamp, taskJson)
 		recordMetrics(startTime, true)
 		return fmt.Errorf("kafka.delay.FailAck Unmarshal error: %w", err)
@@ -177,7 +184,7 @@ func FailAck(timestamp int64, taskJson string, startTime time.Duration) error {
 
 	// 检查是否超过最大重试次数
 	if delayData.Attempts >= maxRetryAttempts {
-		logx.Errorf("kafka.delay.FailAck max retry attempts exceeded, topic: %s, attempts: %d, max: %d",
+		delayLoggerImp.Errorf("kafka.delay.FailAck max retry attempts exceeded, topic: %s, attempts: %d, max: %d",
 			delayData.Topic, delayData.Attempts, maxRetryAttempts)
 		// 超过最大重试次数，直接删除原值，不再重试
 		err = removeFromReserved(timestamp, taskJson)
@@ -194,7 +201,7 @@ func FailAck(timestamp int64, taskJson string, startTime time.Duration) error {
 	newTaskJson, err := json.Marshal(delayData)
 	// 逻辑上不会有这种情况
 	if err != nil {
-		logx.Errorf("kafka.delay.FailAck Marshal delayData: %+v, error: %v", delayData, err)
+		delayLoggerImp.Errorf("kafka.delay.FailAck Marshal delayData: %+v, error: %v", delayData, err)
 		recordMetrics(startTime, true)
 		return fmt.Errorf("kafka.delay.FailAck Marshal error: %w", err)
 	}

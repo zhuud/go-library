@@ -7,7 +7,6 @@ import (
 	"time"
 
 	"github.com/go-zookeeper/zk"
-	"github.com/zeromicro/go-zero/core/logx"
 	"github.com/zeromicro/go-zero/core/proc"
 	"github.com/zeromicro/go-zero/core/threading"
 	"github.com/zhuud/go-library/svc/conf"
@@ -19,6 +18,7 @@ var (
 	serverPath       string
 	nodePath         string
 	registerStopChan = make(chan bool, 1)
+	logger           = internal.NewServerLogger()
 )
 
 func MustRegisterZk() {
@@ -75,18 +75,18 @@ func zkCreate(zkClient *zookeeper.Client, path, data string, flag int32) error {
 			return fmt.Errorf("server.registerZk.Create error: %w", err)
 		}
 	}
-	log.Println(fmt.Sprintf("server.zkCreate success path: %s", path))
+	log.Printf("server.zkCreate success path: %s", path)
 	return nil
 }
 
 func zkDelete(zkClient *zookeeper.Client) {
 	registerStopChan <- true
 	if zkClient == nil {
-		logx.Errorf("server.UnRegisterZk server: %s,  error: zk is nil", nodePath)
+		logger.Errorf("server.UnRegisterZk server: %s,  error: zk is nil", nodePath)
 		return
 	}
 	if err := zkClient.Delete(nodePath, 0); err != nil {
-		logx.Errorf("server.UnRegisterZk.Delete server: %s,  error: %v", nodePath, err)
+		logger.Errorf("server.UnRegisterZk.Delete server: %s,  error: %v", nodePath, err)
 		return
 	}
 	log.Printf("server.zkDelete success path: %s", nodePath)
@@ -94,7 +94,7 @@ func zkDelete(zkClient *zookeeper.Client) {
 
 func backgroundCheckZkNode(zkClient *zookeeper.Client) {
 	if zkClient == nil {
-		logx.Errorf("server.backgroundCheckZkNode node: %s,  error: zk is nil", nodePath)
+		logger.Errorf("server.backgroundCheckZkNode node: %s,  error: zk is nil", nodePath)
 		return
 	}
 
@@ -110,16 +110,16 @@ func backgroundCheckZkNode(zkClient *zookeeper.Client) {
 		case <-ticker.C:
 			existsNode, _, err := zkClient.Exists(nodePath)
 			if err != nil {
-				logx.Errorf("server.backgroundCheckZkNode.Exists node: %s,  error: %v", nodePath, err)
+				logger.Errorf("server.backgroundCheckZkNode.Exists node: %s,  error: %v", nodePath, err)
 				continue
 			}
 			if existsNode {
 				continue
 			}
-			logx.Infof("%v server.backgroundCheckZkNode node:%s recreate", time.Now().Local().Format(time.DateTime), nodePath)
+			logger.Infof("%v server.backgroundCheckZkNode node:%s recreate", time.Now().Local().Format(time.DateTime), nodePath)
 			err = zkCreate(zkClient, nodePath, conf.AppZone(), zk.FlagEphemeral)
 			if err != nil {
-				logx.Errorf("server.backgroundCheckZkNode.zkCreate node: %s,  error: %v", nodePath, err)
+				logger.Errorf("server.backgroundCheckZkNode.zkCreate node: %s,  error: %v", nodePath, err)
 			}
 		}
 	}
