@@ -60,6 +60,7 @@ func Push(ctx context.Context, topic string, data any, sync ...bool) error {
 }
 
 /*
+NewProducer
 Kafka Writer 配置参数说明：
 1. 基础配置
   - Addr (net.Addr, 必需): Kafka 集群地址，使用 kafka.TCP("host1:9092", "host2:9092")
