@@ -18,7 +18,6 @@ require (
 	github.com/spf13/viper v1.21.0
 	github.com/stretchr/testify v1.11.1
 	github.com/valyala/fasthttp v1.67.0
-	github.com/zeromicro/go-queue v1.2.2
 	github.com/zeromicro/go-zero v1.9.2
 	go.opentelemetry.io/otel v1.38.0
 	go.opentelemetry.io/otel/trace v1.38.0

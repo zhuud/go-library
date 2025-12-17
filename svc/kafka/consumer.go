@@ -1,71 +1,217 @@
 package kafka
 
 import (
-	"context"
 	"log"
-	"strings"
 	"time"
 
 	"github.com/segmentio/kafka-go"
-	"github.com/zeromicro/go-queue/kq"
-	"github.com/zeromicro/go-zero/core/logx"
 	"github.com/zeromicro/go-zero/core/service"
-	"github.com/zeromicro/go-zero/core/stat"
+	"github.com/zhuud/go-library/svc/kafka/internal"
 )
 
-// Consume
-// Brokers: kafka 的多个 Broker 节点
-// Group：消费者组
-// Topic：订阅的 Topic 主题
-// Offset：如果新的 topic kafka 没有对应的 offset 信息,或者当前的 offset 无效了(历史数据被删除),那么需要指定从头(first)消费还是从尾(last)部消费
-// Conns: 一个 kafka queue 对应可对应多个 consumer，Conns 对应 kafka queue 数量，可以同时初始化多个 kafka queue，默认只启动一个
-// Consumers : go-queue 内部是起多个 goroutine 从 kafka 中获取信息写入进程内的 channel，这个参数是控制此处的 goroutine 数量（⚠️ 并不是真正消费时的并发 goroutine 数量）
-// Processors: 当 Consumers 中的多个 goroutine 将 kafka 消息拉取到进程内部的 channel 后，我们要真正消费消息写入我们自己逻辑，go-queue 内部通过此参数控制当前消费的并发 goroutine 数量
-// MinBytes: fetch 一次返回的最小字节数,如果不够这个字节数就等待（最多等待 MaxWait 时间）一次返回的最大字节数,如果第一条消息的大小超过了这个限制仍然会继续拉取保证 consumer 的正常运行.因此并不是一个绝对的配置,消息的大小还需要受到 broker 的message.max.bytes限制,以及 topic 的max.message.bytes的限制
-//   - kafka-go 库默认值：1字节
-//   - go-queue/kq 默认值：10240字节 10K（通过 KqConf.MinBytes 配置）
-// MaxBytes: fetch
-// CommitInOrder: 顺序处理
-//
-// 可选参数说明（通过 kq.WithXxx 配置）:
-// - WithMaxWait: 从 kafka 批量获取数据时，等待新数据到来的最大时间
-//   - kafka-go 库默认值：10 秒（如果未配置）
-//   - go-queue/kq 默认值：1 秒（通过 ensureQueueOptions 设置）
-//   - 与 MinBytes 配合：数据量达到 MinBytes 或等待时间达到 MaxWait 时返回
-//   - 当前配置：50ms（实时性优先）
-//
-// - WithCommitInterval: 提交 offset 到 kafka broker 的间隔时间
-//   - 默认值：1 秒（go-queue/kq）
-//   - 建议设置为 MaxWait 的 4-10 倍，减少重复消费风险
-//   - 当前配置：200ms（MaxWait=50ms 的 4 倍）
-func Consume(c kq.KqConf, consumerName string, handler kq.ConsumeHandler) {
+// ReaderOptionFunc 是 internal.ReaderOptionFunc 的类型别名，方便外部包使用
+type (
+	ReaderOptionFunc = internal.ReaderOptionFunc
+	IConsumeHandler  = internal.ConsumeHandler
 
-	servers, err := getServers()
-	if err != nil {
-		log.Fatalf("kafka.Consume servers empty error: %v", err)
+	// ConsumeHandler 消费消息的处理器接口
+	ConsumeHandler interface {
+		IConsumeHandler
+		Name() string
+		Topics() []string
 	}
-	c.Brokers = servers
+)
+
+// Consume 启动 Kafka 消费者服务
+func Consume(handler ConsumeHandler, opts ...ReaderOptionFunc) {
+	brokers, err := internal.GetServers()
+	if err != nil {
+		log.Fatalf("kafka.Consume brokers empty error: %v", err)
+	}
+	if handler == nil {
+		log.Fatalf("kafka.Consume handler not set")
+	}
+	if len(handler.Topics()) == 0 {
+		log.Fatalf("kafka.Consume topics not set")
+	}
+	if len(handler.Name()) == 0 {
+		log.Fatalf("kafka.Consume name not set")
+	}
 
 	serviceGroup := service.NewServiceGroup()
 	defer serviceGroup.Stop()
 
-	topics := strings.Split(c.Topic, ",")
-	for _, topic := range topics {
-		c.Topic = topic
-		// 同一group 消费一份数据
-		c.Group = c.Name + ":" + consumerName
+	for _, topic := range handler.Topics() {
+		// 每个 topic 使用独立的消费者组，便于独立管理和监控
+		group := topic + ":" + handler.Name()
 
-		mq := kq.MustNewQueue(c, handler,
-			kq.WithMaxWait(50*time.Millisecond),
-			kq.WithCommitInterval(200*time.Millisecond),
-			kq.WithMetrics(stat.NewMetrics(c.Group)),
-			kq.WithErrorHandler(func(ctx context.Context, msg kafka.Message, err error) {
-				logx.WithContext(ctx).WithCallerSkip(1).Errorf("kafka.Consume %s ,\n message: %+v ,\n error: %v", c.Group, msg, err)
-			}),
-		)
-		serviceGroup.Add(mq)
+		// 创建 Reader，所有配置通过 opts 参数传入
+		reader := newReader(brokers, topic, group, handler, opts...)
+		serviceGroup.Add(reader)
 	}
 
-	log.Printf("Starting Mq Server At %s, Topics: %v ...", c.Brokers, topics)
+	log.Printf("Starting Mq Server At %v, Topics: %v ...", brokers, handler.Topics())
 	serviceGroup.Start()
+}
+
+// newReader 创建 Reader 实例
+func newReader(brokers []string, topic string, group string, handler ConsumeHandler, opts ...ReaderOptionFunc) *internal.Reader {
+	// 从配置读取认证信息
+	username, password := internal.GetSASL()
+	if len(username) > 0 && len(password) > 0 {
+		opts = append(opts, WithSASL(username, password))
+	}
+	caFile := internal.GetTLS()
+	if len(caFile) > 0 {
+		opts = append(opts, WithTLS(caFile))
+	}
+	return internal.NewReader(brokers, topic, group, handler, opts...)
+}
+
+// WithSASL 配置 SASL 认证
+func WithSASL(username, password string) ReaderOptionFunc {
+	return func(config *internal.ReaderConf) {
+		config.Username = username
+		config.Password = password
+	}
+}
+
+// WithTLS 配置 TLS 证书
+func WithTLS(caFile string) ReaderOptionFunc {
+	return func(config *internal.ReaderConf) {
+		config.CaFile = caFile
+	}
+}
+
+// WithStartOffset 配置起始 offset
+func WithStartOffset(offset int64) ReaderOptionFunc {
+	return func(config *internal.ReaderConf) {
+		config.StartOffset = offset
+	}
+}
+
+// WithMinBytes 配置最小字节数
+func WithMinBytes(bytes int) ReaderOptionFunc {
+	return func(config *internal.ReaderConf) {
+		config.MinBytes = bytes
+	}
+}
+
+// WithMaxBytes 配置最大字节数
+func WithMaxBytes(bytes int) ReaderOptionFunc {
+	return func(config *internal.ReaderConf) {
+		config.MaxBytes = bytes
+	}
+}
+
+// WithMaxWait 配置最大等待时间
+func WithMaxWait(wait time.Duration) ReaderOptionFunc {
+	return func(config *internal.ReaderConf) {
+		config.MaxWait = wait
+	}
+}
+
+// WithCommitInterval 配置提交间隔
+func WithCommitInterval(interval time.Duration) ReaderOptionFunc {
+	return func(config *internal.ReaderConf) {
+		config.CommitInterval = interval
+	}
+}
+
+// WithQueueCapacity 配置队列容量
+func WithQueueCapacity(capacity int) ReaderOptionFunc {
+	return func(config *internal.ReaderConf) {
+		config.QueueCapacity = capacity
+	}
+}
+
+// WithReadBatchTimeout 配置读取批次超时
+func WithReadBatchTimeout(timeout time.Duration) ReaderOptionFunc {
+	return func(config *internal.ReaderConf) {
+		config.ReadBatchTimeout = timeout
+	}
+}
+
+// WithSessionTimeout 配置会话超时
+func WithSessionTimeout(timeout time.Duration) ReaderOptionFunc {
+	return func(config *internal.ReaderConf) {
+		config.SessionTimeout = timeout
+	}
+}
+
+// WithReaderMaxAttempts 配置最大尝试次数
+func WithReaderMaxAttempts(attempts int) ReaderOptionFunc {
+	return func(config *internal.ReaderConf) {
+		config.MaxAttempts = attempts
+	}
+}
+
+// WithHeartbeatInterval 配置心跳间隔
+func WithHeartbeatInterval(interval time.Duration) ReaderOptionFunc {
+	return func(config *internal.ReaderConf) {
+		config.HeartbeatInterval = interval
+	}
+}
+
+// WithRebalanceTimeout 配置重平衡超时
+func WithRebalanceTimeout(timeout time.Duration) ReaderOptionFunc {
+	return func(config *internal.ReaderConf) {
+		config.RebalanceTimeout = timeout
+	}
+}
+
+// WithJoinGroupBackoff 配置加入组退避时间
+func WithJoinGroupBackoff(backoff time.Duration) ReaderOptionFunc {
+	return func(config *internal.ReaderConf) {
+		config.JoinGroupBackoff = backoff
+	}
+}
+
+// WithPartitionWatchInterval 配置分区监听间隔
+func WithPartitionWatchInterval(interval time.Duration) ReaderOptionFunc {
+	return func(config *internal.ReaderConf) {
+		config.PartitionWatchInterval = interval
+	}
+}
+
+// WithWatchPartitionChanges 配置是否监听分区变化
+func WithWatchPartitionChanges(watch bool) ReaderOptionFunc {
+	return func(config *internal.ReaderConf) {
+		config.WatchPartitionChanges = &watch
+	}
+}
+
+// WithGroupBalancers 配置消费组平衡器
+func WithGroupBalancers(balancers ...kafka.GroupBalancer) ReaderOptionFunc {
+	return func(config *internal.ReaderConf) {
+		config.GroupBalancers = balancers
+	}
+}
+
+// WithReadBackoffMin 配置读取退避最小时间
+func WithReadBackoffMin(min time.Duration) ReaderOptionFunc {
+	return func(config *internal.ReaderConf) {
+		config.ReadBackoffMin = min
+	}
+}
+
+// WithReadBackoffMax 配置读取退避最大时间
+func WithReadBackoffMax(max time.Duration) ReaderOptionFunc {
+	return func(config *internal.ReaderConf) {
+		config.ReadBackoffMax = max
+	}
+}
+
+// WithProcessors 配置处理协程数量
+func WithProcessors(processors int) ReaderOptionFunc {
+	return func(config *internal.ReaderConf) {
+		config.Processors = processors
+	}
+}
+
+// WithConsumers 配置消费协程数量
+func WithConsumers(consumers int) ReaderOptionFunc {
+	return func(config *internal.ReaderConf) {
+		config.Consumers = consumers
+	}
 }

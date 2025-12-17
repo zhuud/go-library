@@ -8,18 +8,13 @@ import (
 	"github.com/zeromicro/go-zero/core/stat"
 )
 
-const (
-	// defaultSlowThreshold 默认慢日志阈值，超过此耗时的消息将打印慢日志
-	defaultWriterSlowThreshold = time.Second * 2
-)
-
 // newDefaultCompletionCallback 创建一个使用 writerLogger 和 writerErrorLogger 的 completion callback
 // 接收已创建的 logger 实例，避免重复实例化
 func newDefaultCompletionCallback(infoLogger *writerLogger, errorLogger *writerErrorLogger, metrics *stat.Metrics) func(messages []kafka.Message, err error) {
 	return func(messages []kafka.Message, err error) {
 		defer func() {
 			if r := recover(); r != nil {
-				errorLogger.Printf("kafka delivery panic: %v, messages: %+v", r, messages)
+				errorLogger.Printf("kafka.writer.completion delivery panic: %v, messages: %+v", r, messages)
 			}
 		}()
 		now := time.Now()
@@ -32,13 +27,13 @@ func newDefaultCompletionCallback(infoLogger *writerLogger, errorLogger *writerE
 						Drop:     true,
 					})
 					// 如果超过慢日志阈值，打印慢日志
-					if duration > defaultWriterSlowThreshold {
-						errorLogger.Slowf("kafka message delivered slow: duration=%d, topic=%s, partition=%d, offset=%d, key=%s, message=%s",
-							duration, msg.Topic, msg.Partition, msg.Offset, string(msg.Key), string(msg.Value))
+					if EnableSlowLog() && duration > defaultWriterSlowThreshold {
+						errorLogger.Slowf("kafka.writer.completion slow: push_ns=%s, now_ms=%d, duration_ms=%d, topic=%s, partition=%d, offset=%d, key=%s, message=%s",
+							string(msg.Key), now.UnixMilli(), duration.Milliseconds(), msg.Topic, msg.Partition, msg.Offset, string(msg.Key), string(msg.Value))
 					}
 				}
-				errorLogger.Printf("kafka message delivered failed: error=%v, topic=%s, partition=%d, offset=%d, key=%s, message=%s",
-					err, msg.Topic, msg.Partition, msg.Offset, string(msg.Key), string(msg.Value))
+				errorLogger.Printf("kafka.writer.completion message delivered failed: topic=%s, partition=%d, offset=%d, key=%s, message=%s, error=%v",
+					msg.Topic, msg.Partition, msg.Offset, string(msg.Key), string(msg.Value), err)
 			}
 		} else {
 			for _, msg := range messages {
@@ -48,12 +43,12 @@ func newDefaultCompletionCallback(infoLogger *writerLogger, errorLogger *writerE
 						Duration: duration,
 					})
 					// 如果超过慢日志阈值，打印慢日志
-					if duration > defaultWriterSlowThreshold {
-						infoLogger.Slowf("kafka message delivered slow: duration=%d, topic=%s, partition=%d, offset=%d, key=%s, message=%s",
-							duration, msg.Topic, msg.Partition, msg.Offset, string(msg.Key), string(msg.Value))
+					if EnableSlowLog() && duration > defaultWriterSlowThreshold {
+						infoLogger.Slowf("kafka.writer.completion slow: push_ns=%s, now_ms=%d, duration_ms=%d, topic=%s, partition=%d, offset=%d, key=%s, message=%s",
+							string(msg.Key), now.UnixMilli(), duration.Milliseconds(), msg.Topic, msg.Partition, msg.Offset, string(msg.Key), string(msg.Value))
 					}
 				}
-				infoLogger.Printf("kafka message delivered: topic=%s, partition=%d, offset=%d, key=%s, message=%s",
+				infoLogger.Printf("kafka.writer.completion message delivered: topic=%s, partition=%d, offset=%d, key=%s, message=%s",
 					msg.Topic, msg.Partition, msg.Offset, string(msg.Key), string(msg.Value))
 			}
 		}

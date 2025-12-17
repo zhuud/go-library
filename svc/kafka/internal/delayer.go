@@ -26,18 +26,20 @@ type (
 	}
 
 	// DelayOptionFunc 延迟队列配置选项函数
-	DelayOptionFunc func(config *delayConf)
+	DelayOptionFunc func(config *DelayConf)
 
-	// delayConf 延迟队列配置
-	delayConf struct {
+	// DelayConf 延迟队列配置结构体
+	DelayConf struct {
 		// 队列redis名称前缀
-		prefix string
+		Prefix string
 		// 从队列中获取数据的批量大小
-		batchSize int
+		BatchSize int
 		// 最大重试次数
-		maxRetryAttempts int
+		MaxRetryAttempts int
 		// 重试延迟时间
-		retryDelayDuration time.Duration
+		RetryDelayDuration time.Duration
+		// 并发处理协程数，默认 10
+		Concurrency int
 	}
 
 	// Delayer 延迟队列
@@ -51,6 +53,7 @@ type (
 		batchSize          int
 		maxRetryAttempts   int
 		retryDelayDuration time.Duration
+		concurrency        int // 并发处理协程数
 		popScript          *redis.Script
 		releaseScript      *redis.Script
 		logger             *delayLogger
@@ -75,6 +78,8 @@ const (
 	defaultMaxRetryAttempts = 2
 	// 延迟任务失败重试时间
 	defaultRetryDelay = time.Minute
+	// 默认并发处理协程数
+	defaultConcurrency = 100
 )
 
 var (
@@ -87,17 +92,17 @@ var (
 	releaseScript    = redis.NewScript(releaseLuaScript)
 )
 
-
 // NewDelayer 创建新的延迟队列实例
 func NewDelayer(redisClient *redis.Redis, opts ...DelayOptionFunc) *Delayer {
 	if redisClient == nil {
-		panic("kafka.delay: redis client cannot be nil")
+		panic("kafka.delay redis client cannot be nil")
 	}
 
-	config := delayConf{
-		batchSize:          defaultBatchSize,
-		maxRetryAttempts:   defaultMaxRetryAttempts,
-		retryDelayDuration: defaultRetryDelay,
+	config := DelayConf{
+		BatchSize:          defaultBatchSize,
+		MaxRetryAttempts:   defaultMaxRetryAttempts,
+		RetryDelayDuration: defaultRetryDelay,
+		Concurrency:        defaultConcurrency,
 	}
 
 	for _, opt := range opts {
@@ -107,47 +112,14 @@ func NewDelayer(redisClient *redis.Redis, opts ...DelayOptionFunc) *Delayer {
 	return &Delayer{
 		client:             redisClient,
 		metrics:            stat.NewMetrics("kafka.delay"),
-		prefix:             config.prefix,
-		batchSize:          config.batchSize,
-		maxRetryAttempts:   config.maxRetryAttempts,
-		retryDelayDuration: config.retryDelayDuration,
+		prefix:             config.Prefix,
+		batchSize:          config.BatchSize,
+		maxRetryAttempts:   config.MaxRetryAttempts,
+		retryDelayDuration: config.RetryDelayDuration,
+		concurrency:        config.Concurrency,
 		popScript:          popScript,
 		releaseScript:      releaseScript,
 		logger:             newDelayLogger(),
-	}
-}
-
-// WithDelayPrefix 设置队列redis名称前缀
-func WithDelayPrefix(prefix string) DelayOptionFunc {
-	return func(config *delayConf) {
-		config.prefix = prefix
-	}
-}
-
-// WithDelayBatchSize 设置从队列中获取数据的批量大小
-func WithDelayBatchSize(size int) DelayOptionFunc {
-	return func(config *delayConf) {
-		if size > 0 {
-			config.batchSize = size
-		}
-	}
-}
-
-// WithDelayMaxRetryAttempts 设置最大重试次数
-func WithDelayMaxRetryAttempts(attempts int) DelayOptionFunc {
-	return func(config *delayConf) {
-		if attempts > 0 {
-			config.maxRetryAttempts = attempts
-		}
-	}
-}
-
-// WithDelayRetryDelay 设置重试延迟时间
-func WithDelayRetryDelay(delay time.Duration) DelayOptionFunc {
-	return func(config *delayConf) {
-		if delay > 0 {
-			config.retryDelayDuration = delay
-		}
 	}
 }
 
@@ -226,8 +198,8 @@ func (dl *Delayer) Start(handler MessageHandler, interval time.Duration) {
 	if interval <= 0 {
 		interval = time.Second
 	}
-
-	go dl.loop(handler, interval)
+	dl.logger.Infof("kafka.delay consumer start in the background")
+	go dl.loopFetch(handler, interval)
 }
 
 // Stop 停止后台消费（当前实现为空，程序退出时 goroutine 会自动终止）
@@ -236,8 +208,7 @@ func (dl *Delayer) Stop() {
 }
 
 // loop 后台消费循环
-func (dl *Delayer) loop(handler MessageHandler, interval time.Duration) {
-	dl.logger.Infof("kafka.delay consumer start in the background")
+func (dl *Delayer) loopFetch(handler MessageHandler, interval time.Duration) {
 	defer func() {
 		if err := recover(); err != nil {
 			dl.logger.Errorf("kafka.delay consumer panic: %v", err)
@@ -250,15 +221,35 @@ func (dl *Delayer) loop(handler MessageHandler, interval time.Duration) {
 
 	for range ticker.C {
 		taskJsonList := dl.Pop()
-		for _, taskJson := range taskJsonList {
-			dl.logger.Infof("kafka.delay consumer process data: %s", taskJson)
-			dl.process(handler, taskJson)
+		if len(taskJsonList) == 0 {
+			// TODO 后续去掉打印
+			dl.logger.Infof("kafka.delay consumer no data to process")
+			continue
 		}
+
+		// 使用 go-zero 的 TaskRunner 控制并发协程数，避免创建过多协程
+		runner := threading.NewTaskRunner(dl.concurrency)
+		for _, taskJson := range taskJsonList {
+			task := taskJson // 避免闭包问题，使用局部变量捕获循环变量
+			runner.Schedule(func() {
+				// TODO 后续去掉打印
+				dl.logger.Infof("kafka.delay consumer process data: %s", task)
+				dl.process(handler, task)
+			})
+		}
+		runner.Wait()
 	}
 }
 
 // process 处理单条消息，包含解析、校验、调用 handler、Ack 等完整流程
 func (dl *Delayer) process(handler MessageHandler, taskJson string) {
+	// 加个recover处理，避免单条消息处理失败影响整个循环
+	defer func() {
+		if err := recover(); err != nil {
+			dl.logger.Errorf("kafka.delay.process data: %s, handler: %+v, panic: %v", taskJson, handler, err)
+		}
+	}()
+
 	now := utils.Now()
 	var delayData DelayData
 	err := json.Unmarshal([]byte(taskJson), &delayData)
@@ -278,16 +269,15 @@ func (dl *Delayer) process(handler MessageHandler, taskJson string) {
 	}
 
 	// 调用外部传入的消息处理函数
-	dl.logger.Infof("kafka.delay.process forward delay message, topic: %s, timestamp: %d", delayData.Topic, time.Now().Unix())
+	dl.logger.Infof("kafka.delay.process forward delay message, topic: %s, timestamp: %d, data: %s", delayData.Topic, time.Now().Unix(), taskJson)
 	err = handler(context.Background(), &delayData)
 	if err != nil {
-		dl.logger.Errorf("kafka.delay.process handler error, topic: %s, error: %v", delayData.Topic, err)
+		dl.logger.Errorf("kafka.delay.process handler error, topic: %s, data: %s, error: %v", delayData.Topic, taskJson, err)
 		_ = dl.FailAck(delayData.Timestamp, taskJson, now)
 	} else {
 		_ = dl.SuccessAck(delayData.Timestamp, taskJson, now)
 	}
 }
-
 
 // SuccessAck 确认消息处理成功
 func (dl *Delayer) SuccessAck(timestamp int64, taskJson string, startTime time.Duration) error {

@@ -13,6 +13,9 @@ import (
 	"github.com/zhuud/go-library/svc/kafka/internal"
 )
 
+// DelayOptionFunc 是 internal.DelayOptionFunc 的类型别名，方便外部包使用
+type DelayOptionFunc = internal.DelayOptionFunc
+
 // 关注错误
 // kafka.delay consumer panic
 // kafka.delay.sendAndAck Unmarshal data: %s, error: %v
@@ -25,32 +28,16 @@ const (
 )
 
 var (
-	once    sync.Once
-	hasSet  int32
-	delayer *internal.Delayer
+	delayOnce sync.Once
+	hasSet    int32
+	delayer   *internal.Delayer
 )
 
-func DelaySetUp(redis *redis.Redis, batchSize int, prefix string) {
-	DelaySetUpWithRetry(redis, batchSize, prefix, 0, 0)
-}
-
-// DelaySetUpWithRetry 设置延迟队列，支持配置重试参数
-// maxAttempts: 最大重试次数，0 表示使用默认值 3
-// retryDelay: 重试延迟时间，0 表示使用默认值 1 分钟
-func DelaySetUpWithRetry(redis *redis.Redis, batchSize int, prefix string, maxAttempts int, retryDelay time.Duration) {
-	once.Do(func() {
-		opts := []internal.DelayOptionFunc{
-			internal.WithDelayPrefix(prefix),
-		}
-		if batchSize > 0 {
-			opts = append(opts, internal.WithDelayBatchSize(batchSize))
-		}
-		if maxAttempts > 0 {
-			opts = append(opts, internal.WithDelayMaxRetryAttempts(maxAttempts))
-		}
-		if retryDelay > 0 {
-			opts = append(opts, internal.WithDelayRetryDelay(retryDelay))
-		}
+// DelaySetUp 设置延迟队列
+func DelaySetUp(redis *redis.Redis, prefix string, opts ...DelayOptionFunc) {
+	delayOnce.Do(func() {
+		// 将 prefix 配置添加到 opts 最前面，确保不会被后续 opts 覆盖
+		opts = append([]DelayOptionFunc{WithDelayPrefix(prefix)}, opts...)
 		delayer = internal.NewDelayer(redis, opts...)
 
 		// 注册 WrapUp 监听器，确保优雅关闭
@@ -74,4 +61,47 @@ func PushDelay(ctx context.Context, topic string, data any, delayDuration time.D
 		return fmt.Errorf("kafka.PushDelay must DelaySetUp before PushDelay")
 	}
 	return delayer.Push(ctx, topic, data, delayDuration)
+}
+
+// WithDelayPrefix 配置队列 redis 名称前缀
+func WithDelayPrefix(prefix string) DelayOptionFunc {
+	return func(config *internal.DelayConf) {
+		config.Prefix = prefix
+	}
+}
+
+// WithDelayBatchSize 配置从队列中获取数据的批量大小
+func WithDelayBatchSize(size int) DelayOptionFunc {
+	return func(config *internal.DelayConf) {
+		if size > 0 {
+			config.BatchSize = size
+		}
+	}
+}
+
+// WithDelayMaxRetryAttempts 配置最大重试次数
+func WithDelayMaxRetryAttempts(attempts int) DelayOptionFunc {
+	return func(config *internal.DelayConf) {
+		if attempts > 0 {
+			config.MaxRetryAttempts = attempts
+		}
+	}
+}
+
+// WithDelayRetryDelay 配置重试延迟时间
+func WithDelayRetryDelay(delay time.Duration) DelayOptionFunc {
+	return func(config *internal.DelayConf) {
+		if delay > 0 {
+			config.RetryDelayDuration = delay
+		}
+	}
+}
+
+// WithDelayConcurrency 配置并发处理协程数
+func WithDelayConcurrency(concurrency int) DelayOptionFunc {
+	return func(config *internal.DelayConf) {
+		if concurrency > 0 {
+			config.Concurrency = concurrency
+		}
+	}
 }

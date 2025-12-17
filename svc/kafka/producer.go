@@ -4,12 +4,16 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"io"
 	"runtime"
 	"sync"
 	"time"
 
+	"github.com/segmentio/kafka-go"
+	"github.com/zeromicro/go-zero/core/breaker"
 	"github.com/zeromicro/go-zero/core/logx"
 	"github.com/zeromicro/go-zero/core/proc"
+	"github.com/zeromicro/go-zero/core/syncx"
 	"github.com/zhuud/go-library/svc/conf"
 	"github.com/zhuud/go-library/svc/kafka/internal"
 	"github.com/zhuud/go-library/utils"
@@ -24,16 +28,19 @@ type (
 		// Deprecated
 		LogId string `json:"logid"`
 	}
+	// WriterOptionFunc 是 internal.WriterOptionFunc 的类型别名，方便外部包使用
+	WriterOptionFunc = internal.WriterOptionFunc
 )
 
 var (
-	producers = map[string]*internal.Writer{}
-	mu        sync.Mutex
+	producerManager          = syncx.NewResourceManager()
+	producerManagerCloseOnce sync.Once
 )
 
-func Push(ctx context.Context, topic string, data any, sync ...bool) error {
-	// 根据参数决定异步或同步模式（第一次初始化时确定）
-	producer, err := NewProducer(topic, sync...)
+// Push 推送消息到 Kafka
+func Push(ctx context.Context, topic string, data any, opts ...WriterOptionFunc) error {
+	// 根据参数初始化 producer (第一次初始化时确定)
+	producer, err := NewProducer(topic, opts...)
 	if err != nil {
 		return err
 	}
@@ -59,101 +66,141 @@ func Push(ctx context.Context, topic string, data any, sync ...bool) error {
 	return producer.Push(ctx, string(produceJson))
 }
 
-/*
-NewProducer
-Kafka Writer 配置参数说明：
-1. 基础配置
-  - Addr (net.Addr, 必需): Kafka 集群地址，使用 kafka.TCP("host1:9092", "host2:9092")
-  - Topic (string): 目标主题名称（与 Message.Topic 二选一）
-  - AllowAutoTopicCreation (bool, 默认 false): 是否允许自动创建主题（生产环境建议关闭）
-
-2. 分区负载均衡
-  - Balancer (Balancer, 默认 RoundRobin): 分区负载均衡策略
-    常用 Balancer 类型：
-  - &kafka.LeastBytes{} - 最少字节数（推荐，当前默认）
-  - &kafka.Hash{} - 哈希分区（与 Sarama 兼容）
-  - kafka.CRC32Balancer{} - CRC32 哈希（与 librdkafka 兼容）
-  - kafka.Murmur2Balancer{} - Murmur2 哈希（与 Java 客户端兼容）
-  - &kafka.RoundRobin{} - 轮询（默认）
-
-3. 批次配置（性能关键）
-  - BatchSize (int, 默认 100): 每个批次的消息数量
-  - BatchBytes (int64, 默认 1048576 即 1MB): 每个批次的最大字节数
-  - BatchTimeout (time.Duration, 默认 1s): 批次刷新超时时间
-    性能调优建议：
-  - 高吞吐场景：增大 BatchSize 和 BatchBytes，适当增加 BatchTimeout
-  - 低延迟场景：减小 BatchSize 和 BatchTimeout，优先保证实时性
-  - 平衡场景：使用推荐配置
-
-4. 超时配置
-  - ReadTimeout (time.Duration, 默认 10s): 读取操作的超时时间
-  - WriteTimeout (time.Duration, 默认 10s): 写入操作的超时时间
-
-5. 重试与容错
-  - MaxAttempts (int, 默认 10): 消息发送失败的最大重试次数
-  - WriteBackoffMin (time.Duration, 默认 100ms): 重试前的最小退避时间
-  - WriteBackoffMax (time.Duration, 默认 1s): 重试前的最大退避时间
-
-6. 确认机制（可靠性关键）
-  - RequiredAcks (RequiredAcks, 默认 RequireNone 即 0): 消息确认要求
-    RequiredAcks 选项：
-  - kafka.RequireNone (0) - 不等待确认（最快，但可能丢消息）
-  - kafka.RequireOne (1) - 等待 Leader 确认（平衡，当前默认）
-  - kafka.RequireAll (-1) - 等待所有 ISR 副本确认（最可靠，但最慢）
-
-7. 异步模式
-  - Async (bool, 默认 false): 是否启用异步模式
-  - Completion (func([]Message, error)): 异步完成回调函数
-    异步模式说明：
-  - Async = false：同步模式，WriteMessages 会阻塞直到消息写入完成
-  - Async = true：异步模式，WriteMessages 立即返回，通过 Completion 回调处理结果
-
-8. 压缩配置
-  - Compression (Compression, 默认 None): 消息压缩算法
-    压缩算法选项：
-  - kafka.CompressionNone - 不压缩
-  - kafka.CompressionGzip - Gzip 压缩（压缩率高，CPU 消耗大）
-  - kafka.CompressionSnappy - Snappy 压缩（推荐，平衡压缩率和性能，当前默认）
-  - kafka.CompressionLz4 - LZ4 压缩（速度快，压缩率中等）
-  - kafka.CompressionZstd - Zstd 压缩（压缩率高，性能好）
-*/
-func NewProducer(topic string, sync ...bool) (*internal.Writer, error) {
-	// TODO 使用资源管理器
-	producer, ok := producers[topic]
-	if ok {
-		return producer, nil
+// newProducer 创建 Producer 实例
+func NewProducer(topic string, opts ...WriterOptionFunc) (*internal.Writer, error) {
+	// 确保关闭监听器只注册一次
+	producerManagerCloseOnce.Do(func() {
+		proc.AddShutdownListener(func() {
+			_ = producerManager.Close()
+		})
+	})
+	servers, err := internal.GetServers()
+		if err != nil {
+			return nil, err
+		}
+	if len(servers) == 0 {
+		return nil, fmt.Errorf("kafka.NewProducer servers not set")
+	}
+	if len(topic) == 0 {
+		return nil, fmt.Errorf("kafka.NewProducer topic not set")
 	}
 
-	mu.Lock()
-	defer func() {
-		proc.AddShutdownListener(func() {
-			_ = producers[topic].Close()
-		})
-		mu.Unlock()
-	}()
+	resource, err := producerManager.GetResource(topic, func() (io.Closer, error) {
+		if conf.IsLocal() {
+			opts = append(opts, WithAllowAutoTopicCreation())
+		}
 
-	servers, err := getServers()
+		producer := internal.NewWriter(servers, topic, opts...)
+		return producer, nil
+	})
 	if err != nil {
 		return nil, err
 	}
 
-	opts := []internal.PushOptionFunc{
-		internal.WithBatchSize(100),
-		internal.WithBatchBytes(1024 * 1024),
-		internal.WithBatchTimeout(50 * time.Millisecond),
-		internal.WithAsync(true),
-	}
-	// 如果需要同步推送模式，则设置为同步模式
-	if len(sync) > 0 && sync[0] {
-		opts = append(opts, internal.WithAsync(false))
-	}
-	if conf.IsLocal() {
-		opts = append(opts, internal.WithAllowAutoTopicCreation())
-	}
+	return resource.(*internal.Writer), nil
+}
 
-	producer = internal.NewWriter(servers, topic, opts...)
+// WithAllowAutoTopicCreation 允许自动创建 topic
+func WithAllowAutoTopicCreation() WriterOptionFunc {
+	return func(config *internal.WriterConf) {
+		config.AllowAutoTopicCreation = true
+	}
+}
 
-	producers[topic] = producer
+// WithBatchSize 配置批量大小（消息数量）
+func WithBatchSize(size int) WriterOptionFunc {
+	return func(config *internal.WriterConf) {
+		config.BatchSize = size
+	}
+}
 
-	return producers[topic], nil
+// WithBatchBytes 配置批量大小（字节数）
+func WithBatchBytes(bytes int64) WriterOptionFunc {
+	return func(config *internal.WriterConf) {
+		config.BatchBytes = bytes
+	}
+}
+
+// WithBatchTimeout 配置批次刷新超时时间
+func WithBatchTimeout(timeout time.Duration) WriterOptionFunc {
+	return func(config *internal.WriterConf) {
+		config.BatchTimeout = timeout
+	}
+}
+
+// WithAsync 配置是否异步模式
+func WithAsync(async bool) WriterOptionFunc {
+	return func(config *internal.WriterConf) {
+		config.Async = &async
+	}
+}
+
+// WithRequiredAcks 配置需要的确认数
+func WithRequiredAcks(acks kafka.RequiredAcks) WriterOptionFunc {
+	return func(config *internal.WriterConf) {
+		config.RequiredAcks = acks
+	}
+}
+
+// WithReadTimeout 配置读取超时时间
+func WithReadTimeout(timeout time.Duration) WriterOptionFunc {
+	return func(config *internal.WriterConf) {
+		config.ReadTimeout = timeout
+	}
+}
+
+// WithWriteTimeout 配置写入超时时间
+func WithWriteTimeout(timeout time.Duration) WriterOptionFunc {
+	return func(config *internal.WriterConf) {
+		config.WriteTimeout = timeout
+	}
+}
+
+// WithMaxAttempts 配置最大尝试次数
+func WithMaxAttempts(attempts int) WriterOptionFunc {
+	return func(config *internal.WriterConf) {
+		config.MaxAttempts = attempts
+	}
+}
+
+// WithBalancer 配置分区平衡器
+func WithBalancer(balancer kafka.Balancer) WriterOptionFunc {
+	return func(config *internal.WriterConf) {
+		config.Balancer = balancer
+	}
+}
+
+// WithCompression 配置压缩算法
+func WithCompression(compression kafka.Compression) WriterOptionFunc {
+	return func(config *internal.WriterConf) {
+		config.Compression = compression
+	}
+}
+
+// WithWriteBackoffMin 配置写入退避最小时间
+func WithWriteBackoffMin(min time.Duration) WriterOptionFunc {
+	return func(config *internal.WriterConf) {
+		config.WriteBackoffMin = min
+	}
+}
+
+// WithWriteBackoffMax 配置写入退避最大时间
+func WithWriteBackoffMax(max time.Duration) WriterOptionFunc {
+	return func(config *internal.WriterConf) {
+		config.WriteBackoffMax = max
+	}
+}
+
+// WithCompletion 配置完成回调函数
+func WithCompletion(completion func(messages []kafka.Message, err error)) WriterOptionFunc {
+	return func(config *internal.WriterConf) {
+		config.Completion = completion
+	}
+}
+
+// WithBreaker 配置断路器
+func WithBreaker(brk breaker.Breaker) WriterOptionFunc {
+	return func(config *internal.WriterConf) {
+		config.Breaker = brk
+	}
 }

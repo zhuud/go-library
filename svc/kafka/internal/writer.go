@@ -11,6 +11,26 @@ import (
 	"go.opentelemetry.io/otel"
 )
 
+var (
+	// defaultWriterBalancer 默认分区平衡器
+	defaultWriterBalancer = &kafka.LeastBytes{}
+)
+
+const (
+	// defaultWriterCompression 默认压缩算法
+	defaultWriterCompression = kafka.Snappy
+	// defaultWriterRequiredAcks 默认需要的确认数，仅等待 leader 副本写入本地磁盘并返回确认
+	defaultWriterRequiredAcks = kafka.RequireOne
+	// defaultWriterBatchSize 默认批量大小限制（消息数量）
+	defaultWriterBatchSize = 100
+	// defaultWriterBatchBytes 默认批量大小限制（字节数），1MB
+	defaultWriterBatchBytes = 1 * 1024 * 1024
+	// defaultWriterBatchTimeout 默认不完整消息批次的刷新时间限制，50毫秒
+	defaultWriterBatchTimeout = 50 * time.Millisecond
+	// defaultWriterAsync 默认是否异步模式
+	defaultWriterAsync = true
+)
+
 // Kafka Writer
 // 支持参数配置
 // 支持日志记录、慢日志记录
@@ -23,119 +43,157 @@ type (
 		WriteMessages(ctx context.Context, msgs ...kafka.Message) error
 	}
 
-	PushOptionFunc func(config *pushConf)
+	WriterOptionFunc func(config *WriterConf)
 
-	pushConf struct {
-		// kafka.Writer options
-		allowAutoTopicCreation bool
-		balancer               kafka.Balancer
-		batchSize              int
-		batchBytes             int64
-		batchTimeout           time.Duration
-		async                  bool
-		completion             func(messages []kafka.Message, err error)
-		requiredAcks           kafka.RequiredAcks
-		readTimeout            time.Duration
-		writeTimeout           time.Duration
-		maxAttempts            int
-		compression            kafka.Compression
+	// WriterConf Writer 配置结构体
+	WriterConf struct {
+		// 基础配置
+		AllowAutoTopicCreation bool // 是否允许自动创建 topic，默认 false
 
-		// Breaker 断路器（可选），如果为 nil 则不启用熔断
-		breaker breaker.Breaker
+		// 性能配置
+		BatchSize    int                // 批量大小限制（消息数量），默认 100（kafka-go 默认 100）
+		BatchBytes   int64              // 批量大小限制（字节数），默认 1M（kafka-go 默认 1M）
+		BatchTimeout time.Duration      // 不完整消息批次的刷新时间限制，默认 50 毫秒（kafka-go 默认 1 秒）
+		Async        *bool              // 是否异步模式，默认 true（kafka-go 默认 false）
+		RequiredAcks kafka.RequiredAcks // 需要的确认数，默认 RequireOne (1)（kafka-go 默认 RequireNone (0)）
+
+		// 网络配置
+		ReadTimeout  time.Duration // 读取操作的超时时间（kafka-go 默认 10 秒）
+		WriteTimeout time.Duration // 写入操作的超时时间（kafka-go 默认 10 秒）
+		MaxAttempts  int           // 消息传递的最大尝试次数（kafka-go 默认 10）
+
+		// 消息配置
+		Balancer    kafka.Balancer    // 分区平衡器，默认 LeastBytes（kafka-go 默认 RoundRobin）
+		Compression kafka.Compression // 压缩算法，默认 Snappy（kafka-go 默认 CompressionNone）
+
+		// 写入配置
+		WriteBackoffMin time.Duration // 写入退避最小时间（kafka-go 默认 100ms）
+		WriteBackoffMax time.Duration // 写入退避最大时间（kafka-go 默认 1 秒）
+
+		// 回调配置
+		Completion func(messages []kafka.Message, err error) // 完成回调函数
+
+		// 断路器配置
+		Breaker breaker.Breaker // 断路器（nil 时不启用熔断）
 	}
 
 	Writer struct {
-		topic    string
-		producer kafkaWriter
-		metrics  *stat.Metrics
-		breaker  breaker.Breaker // 断路器（可选），如果为 nil 则不启用熔断
+		topic       string
+		writer      kafkaWriter
+		metrics     *stat.Metrics
+		infoLogger  *writerLogger
+		errorLogger *writerErrorLogger
+		breaker     breaker.Breaker // 断路器（可选），如果为 nil 则不启用熔断
 	}
 )
 
-// NewWriter returns a Writer with the given Kafka addresses and topic.
-func NewWriter(addrs []string, topic string, opts ...PushOptionFunc) *Writer {
+// NewWriter 创建 Writer 实例
+func NewWriter(addrs []string, topic string, opts ...WriterOptionFunc) *Writer {
 	// 创建 logger 实例
 	infoLogger := newWriterLogger(topic)
 	errorLogger := newWriterErrorLogger(topic)
 	metrics := stat.NewMetrics("kafka.writer." + topic)
 
-	producer := &kafka.Writer{
-		Addr:         kafka.TCP(addrs...),
-		Topic:        topic,
-		Balancer:     &kafka.LeastBytes{},
-		Compression:  kafka.Snappy,
-		Completion:   newDefaultCompletionCallback(infoLogger, errorLogger, metrics), // 默认 completion callback
-		RequiredAcks: kafka.RequireOne,                                               // 默认 仅等待 leader 副本写入本地磁盘并返回确认，不关心 follower 是否同步
-		Logger:       infoLogger,
-		ErrorLogger:  errorLogger,
-	}
-
-	var config pushConf
+	var config WriterConf
 	for _, opt := range opts {
 		opt(&config)
 	}
 
-	producer.AllowAutoTopicCreation = config.allowAutoTopicCreation
-	producer.Async = config.async
-
-	// apply kafka.Writer options (only set if explicitly configured)
-	if config.balancer != nil {
-		producer.Balancer = config.balancer
-	}
-	if config.batchSize > 0 {
-		producer.BatchSize = config.batchSize
-	}
-	if config.batchBytes > 0 {
-		producer.BatchBytes = config.batchBytes
-	}
-	if config.batchTimeout > 0 {
-		producer.BatchTimeout = config.batchTimeout
-	}
-	if config.requiredAcks != 0 {
-		producer.RequiredAcks = config.requiredAcks
-	}
-	if config.readTimeout > 0 {
-		producer.ReadTimeout = config.readTimeout
-	}
-	if config.writeTimeout > 0 {
-		producer.WriteTimeout = config.writeTimeout
-	}
-	if config.maxAttempts > 0 {
-		producer.MaxAttempts = config.maxAttempts
-	}
-	if config.compression != 0 {
-		producer.Compression = config.compression
+	writer := &kafka.Writer{
+		Addr:         kafka.TCP(addrs...),
+		Topic:        topic,
+		BatchSize:    defaultWriterBatchSize,
+		BatchBytes:   defaultWriterBatchBytes,
+		BatchTimeout: defaultWriterBatchTimeout,
+		Async:        defaultWriterAsync,
+		Completion:   newDefaultCompletionCallback(infoLogger, errorLogger, metrics),
+		RequiredAcks: defaultWriterRequiredAcks,
+		Balancer:     defaultWriterBalancer,
+		Compression:  defaultWriterCompression,
+		Logger:       infoLogger,
+		ErrorLogger:  errorLogger,
 	}
 
+	// 应用配置（只设置显式配置的选项）
+	// 基础配置
+	writer.AllowAutoTopicCreation = config.AllowAutoTopicCreation
+
+	// 性能配置
+	if config.BatchSize > 0 {
+		writer.BatchSize = config.BatchSize
+	}
+	if config.BatchBytes > 0 {
+		writer.BatchBytes = config.BatchBytes
+	}
+	if config.BatchTimeout > 0 {
+		writer.BatchTimeout = config.BatchTimeout
+	}
+	if config.Async != nil {
+		writer.Async = *config.Async
+	}
+	if config.RequiredAcks != 0 {
+		writer.RequiredAcks = config.RequiredAcks
+	}
+
+	// 网络配置
+	if config.ReadTimeout > 0 {
+		writer.ReadTimeout = config.ReadTimeout
+	}
+	if config.WriteTimeout > 0 {
+		writer.WriteTimeout = config.WriteTimeout
+	}
+	if config.MaxAttempts > 0 {
+		writer.MaxAttempts = config.MaxAttempts
+	}
+
+	// 消息配置
+	if config.Balancer != nil {
+		writer.Balancer = config.Balancer
+	}
+	if config.Compression != 0 {
+		writer.Compression = config.Compression
+	}
+
+	// 写入配置
+	if config.WriteBackoffMin > 0 {
+		writer.WriteBackoffMin = config.WriteBackoffMin
+	}
+	if config.WriteBackoffMax > 0 {
+		writer.WriteBackoffMax = config.WriteBackoffMax
+	}
+
+	// 回调配置
 	// 只有当 completion 被显式设置时才覆盖默认值
-	if config.completion != nil {
-		producer.Completion = config.completion
+	if config.Completion != nil {
+		writer.Completion = config.Completion
 	}
 
 	return &Writer{
-		producer: producer,
-		topic:    topic,
-		metrics:  metrics,
-		breaker:  config.breaker, // 使用配置中的 breaker，如果为 nil 则不启用熔断
+		topic:       topic,
+		writer:      writer,
+		metrics:     metrics,
+		infoLogger:  infoLogger,
+		errorLogger: errorLogger,
+		breaker:     config.Breaker, // 使用配置中的 breaker，如果为 nil 则不启用熔断
 	}
 }
 
-// Close closes the Writer and releases any resources used by it.
+// Close 关闭 Writer 并释放资源
 func (w *Writer) Close() error {
-	return w.producer.Close()
+	return w.writer.Close()
 }
 
-// Name returns the name of the Kafka topic that the Writer is sending messages to.
+// Name 返回 Writer 发送消息的 topic 名称
 func (w *Writer) Name() string {
 	return w.topic
 }
 
-// Push sends a message to the Kafka topic.
+// Push 发送消息到 Kafka topic
 func (w *Writer) Push(ctx context.Context, v string) error {
 	return w.PushWithKey(ctx, strconv.FormatInt(time.Now().UnixNano(), 10), v)
 }
 
-// PushWithKey sends a message with the given key to the Kafka topic.
+// PushWithKey 发送带 key 的消息到 Kafka topic
 func (w *Writer) PushWithKey(ctx context.Context, key, v string) error {
 	msg := kafka.Message{
 		Key:   []byte(key),
@@ -150,105 +208,10 @@ func (w *Writer) PushWithKey(ctx context.Context, key, v string) error {
 	// 如果配置了断路器，使用断路器包装请求执行
 	if w.breaker != nil {
 		return w.breaker.DoCtx(ctx, func() error {
-			return w.producer.WriteMessages(ctx, msg)
+			return w.writer.WriteMessages(ctx, msg)
 		})
 	}
 
 	// 如果没有配置断路器，直接执行请求
-	return w.producer.WriteMessages(ctx, msg)
-}
-
-// WithAllowAutoTopicCreation allows the Writer to create the given topic if it does not exist.
-func WithAllowAutoTopicCreation() PushOptionFunc {
-	return func(config *pushConf) {
-		config.allowAutoTopicCreation = true
-	}
-}
-
-// WithBalancer customizes the Writer with the given balancer.
-func WithBalancer(balancer kafka.Balancer) PushOptionFunc {
-	return func(config *pushConf) {
-		config.balancer = balancer
-	}
-}
-
-// WithBatchSize customizes the Writer with the given batch size.
-func WithBatchSize(size int) PushOptionFunc {
-	return func(config *pushConf) {
-		config.batchSize = size
-	}
-}
-
-// WithBatchTimeout customizes the Writer with the given batch timeout.
-func WithBatchTimeout(timeout time.Duration) PushOptionFunc {
-	return func(config *pushConf) {
-		config.batchTimeout = timeout
-	}
-}
-
-// WithBatchBytes customizes the Writer with the given batch bytes.
-func WithBatchBytes(bytes int64) PushOptionFunc {
-	return func(config *pushConf) {
-		config.batchBytes = bytes
-	}
-}
-
-// WithAsync enables async push mode (disables synchronous push).
-func WithAsync(async bool) PushOptionFunc {
-	return func(config *pushConf) {
-		config.async = async
-	}
-}
-
-// WithRequiredAcks customizes the Writer with the given required acks.
-func WithRequiredAcks(acks kafka.RequiredAcks) PushOptionFunc {
-	return func(config *pushConf) {
-		config.requiredAcks = acks
-	}
-}
-
-// WithReadTimeout customizes the Writer with the given read timeout.
-func WithReadTimeout(timeout time.Duration) PushOptionFunc {
-	return func(config *pushConf) {
-		config.readTimeout = timeout
-	}
-}
-
-// WithWriteTimeout customizes the Writer with the given write timeout.
-func WithWriteTimeout(timeout time.Duration) PushOptionFunc {
-	return func(config *pushConf) {
-		config.writeTimeout = timeout
-	}
-}
-
-// WithMaxAttempts customizes the Writer with the given max attempts.
-func WithMaxAttempts(attempts int) PushOptionFunc {
-	return func(config *pushConf) {
-		config.maxAttempts = attempts
-	}
-}
-
-// WithCompression customizes the Writer with the given compression.
-func WithCompression(compression kafka.Compression) PushOptionFunc {
-	return func(config *pushConf) {
-		config.compression = compression
-	}
-}
-
-// WithCompletion customizes the Writer with the given completion callback.
-// This callback is called when messages are successfully delivered or failed.
-// If async mode is enabled and no completion callback is provided, a default
-// callback that logs with logx will be used.
-func WithCompletion(completion func(messages []kafka.Message, err error)) PushOptionFunc {
-	return func(config *pushConf) {
-		config.completion = completion
-	}
-}
-
-// WithBreaker 设置断路器（可选）
-// 如果不设置，则不启用熔断功能
-func WithBreaker(brk breaker.Breaker) PushOptionFunc {
-	return func(config *pushConf) {
-		config.breaker = brk
-	}
+	return w.writer.WriteMessages(ctx, msg)
 }

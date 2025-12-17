@@ -19,7 +19,7 @@ var (
 )
 
 func Test_Delay(t *testing.T) {
-	DelaySetUp(r, 1000, "wechat")
+	DelaySetUp(r, "wechat", WithDelayBatchSize(1000))
 	err := PushDelay(ctx, "5002", map[string]interface{}{"sss": 1}, time.Second*5)
 	spew.Dump(err)
 	time.Sleep(time.Second * 100)
