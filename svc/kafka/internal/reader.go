@@ -5,9 +5,11 @@ import (
 	"crypto/tls"
 	"crypto/x509"
 	"errors"
+	"fmt"
 	"io"
 	"log"
 	"os"
+	"runtime"
 	"time"
 
 	"github.com/segmentio/kafka-go"
@@ -20,9 +22,9 @@ import (
 
 const (
 	// defaultMaxWait 默认等待新数据的最大时间
-	defaultMaxWait = 50 * time.Millisecond
+	defaultMaxWait = 100 * time.Millisecond
 	// defaultCommitInterval 默认提交偏移量的间隔
-	defaultCommitInterval = 200 * time.Millisecond
+	defaultCommitInterval = 400 * time.Millisecond
 	// defaultQueueCapacity 默认内部消息队列容量
 	defaultQueueCapacity = 1000
 	// defaultStartOffset 默认起始 offset，从最新开始
@@ -310,8 +312,31 @@ func (r *Reader) startConsumers() {
 }
 
 // consumeOne 处理单条消息
-func (r *Reader) consumeOne(ctx context.Context, msg kafka.Message) error {
+func (r *Reader) consumeOne(ctx context.Context, msg kafka.Message) (err error) {
 	now := time.Now()
+
+	// defer recover 处理 panic
+	defer func() {
+		if p := recover(); p != nil {
+			// 获取堆栈信息
+			buf := make([]byte, 4096)
+			n := runtime.Stack(buf, false)
+			stackTrace := string(buf[:n])
+
+			// 构造 panic 错误
+			err = fmt.Errorf("kafka.reader.consumeOne panic: %v\n%s", p, stackTrace)
+
+			// 记录 panic 日志
+			r.errorLogger.Printf("kafka.reader.consumeOne panic: topic=%s, partition=%d, offset=%d, key=%s, message=%s, panic=%v\n%s",
+				msg.Topic, msg.Partition, msg.Offset, string(msg.Key), string(msg.Value), p, stackTrace)
+		}
+		// 统一记录 metrics（panic 时 err != nil，正常错误时 err != nil，都视为失败）
+		duration := time.Since(now)
+		r.bizMetrics.Add(stat.Task{
+			Duration: duration,
+			Drop:     err != nil,
+		})
+	}()
 
 	// 流转耗时metrics
 	if duration := calculateDurationFromKey(msg.Key, now); duration >= 0 {
@@ -326,15 +351,7 @@ func (r *Reader) consumeOne(ctx context.Context, msg kafka.Message) error {
 	}
 
 	// 业务逻辑
-	err := r.handler.Consume(ctx, string(msg.Key), string(msg.Value))
-
-	// 业务逻辑metrics
-	duration := time.Since(now)
-	// 记录 metrics
-	r.bizMetrics.Add(stat.Task{
-		Duration: duration,
-		Drop:     err != nil,
-	})
+	err = r.handler.Consume(ctx, string(msg.Key), string(msg.Value))
 
 	return err
 }

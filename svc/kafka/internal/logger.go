@@ -1,6 +1,9 @@
 package internal
 
 import (
+	"fmt"
+	"strings"
+
 	"github.com/zeromicro/go-zero/core/logx"
 )
 
@@ -51,26 +54,6 @@ func (l *writerErrorLogger) Slowf(format string, args ...any) {
 	l.logger.Slowf(format, args...)
 }
 
-// delayLoggerImpl 是使用 logx 实现的 kafka.delay 模块的 logger
-type delayLogger struct {
-	logger kafkaLogger
-}
-
-func newDelayLogger() *delayLogger {
-	return &delayLogger{
-		logger: logx.WithCallerSkip(1).
-			WithFields(logx.Field("component", "kafka.delay")),
-	}
-}
-
-func (l *delayLogger) Errorf(format string, args ...any) {
-	l.logger.Errorf(format, args...)
-}
-
-func (l *delayLogger) Infof(format string, args ...any) {
-	l.logger.Infof(format, args...)
-}
-
 // readerLogger 是使用 logx 实现的 kafka.Logger，支持按 topic 区分
 type readerLogger struct {
 	logger kafkaLogger
@@ -84,6 +67,12 @@ func newReaderLogger(group string) *readerLogger {
 }
 
 func (l *readerLogger) Printf(msg string, args ...any) {
+	// 过滤某些日志，不打印 eg no messages received from kafka within the allocated time
+	// the kafka reader for partition 3 of 79029 is seeking to offset 2208925
+	formattedMsg := fmt.Sprintf(msg, args...)
+	if shouldFilterLog(formattedMsg) {
+		return
+	}
 	l.logger.Infof(msg, args...)
 }
 
@@ -109,4 +98,47 @@ func (l *readerErrorLogger) Printf(msg string, args ...any) {
 
 func (l *readerErrorLogger) Slowf(format string, args ...any) {
 	l.logger.Slowf(format, args...)
+}
+
+// delayLoggerImpl 是使用 logx 实现的 kafka.delay 模块的 logger
+type delayLogger struct {
+	logger kafkaLogger
+}
+
+func newDelayLogger() *delayLogger {
+	return &delayLogger{
+		logger: logx.WithCallerSkip(1).
+			WithFields(logx.Field("component", "kafka.delay")),
+	}
+}
+
+func (l *delayLogger) Errorf(format string, args ...any) {
+	l.logger.Errorf(format, args...)
+}
+
+func (l *delayLogger) Infof(format string, args ...any) {
+	l.logger.Infof(format, args...)
+}
+
+// shouldFilterLog 判断是否应该过滤该日志
+// 返回 true 表示应该过滤（不打印），false 表示正常打印
+func shouldFilterLog(msg string) bool {
+	// 转换为小写进行匹配，提高匹配的容错性
+	lowerMsg := strings.ToLower(msg)
+
+	// 定义需要过滤的关键词列表（已转换为小写）
+	filterKeywords := []string{
+		"no messages received",
+		"is seeking to offset",
+		"committed offsets for group",
+	}
+
+	// 检查消息是否包含任何需要过滤的关键词
+	for _, keyword := range filterKeywords {
+		if strings.Contains(lowerMsg, keyword) {
+			return true
+		}
+	}
+
+	return false
 }
