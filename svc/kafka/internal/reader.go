@@ -22,17 +22,17 @@ import (
 
 const (
 	// defaultMaxWait 默认等待新数据的最大时间
-	defaultMaxWait = 100 * time.Millisecond
+	defaultMaxWait = 50 * time.Millisecond
 	// defaultCommitInterval 默认提交偏移量的间隔
-	defaultCommitInterval = 400 * time.Millisecond
+	defaultCommitInterval = 200 * time.Millisecond
 	// defaultQueueCapacity 默认内部消息队列容量
 	defaultQueueCapacity = 1000
 	// defaultStartOffset 默认起始 offset，从最新开始
 	defaultStartOffset = kafka.LastOffset
 	// defaultWatchPartitionChanges 默认是否监听分区变化
 	defaultWatchPartitionChanges = true
-	// defaultMinBytes 默认最小字节数，10K
-	defaultMinBytes = 10 * 1024
+	// defaultMinBytes 默认最小字节数，128字节
+	defaultMinBytes = 128
 	// defaultMaxBytes 默认最大字节数，4M
 	defaultMaxBytes = 4 * 1024 * 1024
 	// defaultProcessors 默认处理协程数量
@@ -79,7 +79,7 @@ type (
 		// 网络配置
 		ReadBatchTimeout time.Duration // 从批次中获取消息的超时时间（kafka-go 默认 10 秒）
 		SessionTimeout   time.Duration // 会话超时（kafka-go 默认 30 秒）
-		MaxAttempts      int           // 连接尝试的最大次数（kafka-go 无此字段）
+		MaxAttempts      int           // 连接尝试的最大次数（kafka-go 默认3次）
 
 		// 消费组配置
 		HeartbeatInterval      time.Duration         // 心跳间隔（kafka-go 默认 3 秒）
