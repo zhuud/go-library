@@ -22,9 +22,9 @@ import (
 
 const (
 	// defaultMaxWait 默认等待新数据的最大时间
-	defaultMaxWait = 50 * time.Millisecond
+	defaultMaxWait = 100 * time.Millisecond
 	// defaultCommitInterval 默认提交偏移量的间隔
-	defaultCommitInterval = 200 * time.Millisecond
+	defaultCommitInterval = 400 * time.Millisecond
 	// defaultQueueCapacity 默认内部消息队列容量
 	defaultQueueCapacity = 1000
 	// defaultStartOffset 默认起始 offset，从最新开始
