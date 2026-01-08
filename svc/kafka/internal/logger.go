@@ -1,7 +1,6 @@
 package internal
 
 import (
-	"fmt"
 	"strings"
 
 	"github.com/zeromicro/go-zero/core/logx"
@@ -27,6 +26,9 @@ func newWriterLogger(topic string) *writerLogger {
 }
 
 func (l *writerLogger) Printf(msg string, args ...any) {
+	if shouldFilterLog(msg) {
+		return
+	}
 	l.logger.Infof(msg, args...)
 }
 
@@ -69,8 +71,7 @@ func newReaderLogger(group string) *readerLogger {
 func (l *readerLogger) Printf(msg string, args ...any) {
 	// 过滤某些日志，不打印 eg no messages received from kafka within the allocated time
 	// the kafka reader for partition 3 of 79029 is seeking to offset 2208925
-	formattedMsg := fmt.Sprintf(msg, args...)
-	if shouldFilterLog(formattedMsg) {
+	if shouldFilterLog(msg) {
 		return
 	}
 	l.logger.Infof(msg, args...)
@@ -134,6 +135,8 @@ func shouldFilterLog(msg string) bool {
 		// error中 the kafka reader got an unknown error reading partition 1 of 79029 at offset 2237548: read tcp ->: i/o timeout 一般是因为maxwait时间太短 时间内没有收到数据 可以调整大一点
 		// i/o timeout 就会 重新initializing kafka reader
 		"initializing kafka reader",
+		// writing 1 messages to 79034 (partition: 0)
+		"writing",
 	}
 
 	// 检查消息是否包含任何需要过滤的关键词
