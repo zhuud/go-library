@@ -222,8 +222,6 @@ func (dl *Delayer) loopFetch(handler MessageHandler, interval time.Duration) {
 	for range ticker.C {
 		taskJsonList := dl.Pop()
 		if len(taskJsonList) == 0 {
-			// TODO 后续去掉打印
-			dl.logger.Infof("kafka.delay consumer no data to process")
 			continue
 		}
 
