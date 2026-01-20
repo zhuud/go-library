@@ -22,9 +22,13 @@ func New(opts ...OptionFunc) *Client {
 		ReadTimeout:         DefaultReadTimeout,
 		WriteTimeout:        DefaultWriteTimeout,
 		MaxConnWaitTimeout:  DefaultMaxConnWaitTimeout,
-		MaxIdleConnDuration: DefaultMaxIdleConnDuration,
+
 		MaxConnsPerHost:     DefaultMaxConnsPerHost,
 		Concurrency:         DefaultConcurrency,
+
+		MaxIdleConnDuration: DefaultMaxIdleConnDuration,
+		MaxConnDuration:     DefaultMaxConnDuration,
+
 		DNSCacheDuration:    DefaultDNSCacheDuration,
 	}
 
@@ -41,10 +45,13 @@ func New(opts ...OptionFunc) *Client {
 			WriteTimeout: config.WriteTimeout,
 			// 连接用完后等待连接时间
 			MaxConnWaitTimeout: config.MaxConnWaitTimeout,
+			// 空闲连接持续时间
+			// ⚠️ 必须短于服务器端的连接超时时间，避免复用已被服务器关闭的连接
+			MaxIdleConnDuration: config.MaxIdleConnDuration,
+			// 连接最大使用时间，超过此时间后连接会被关闭
+			MaxConnDuration: config.MaxConnDuration,
 			// 每个主机的最大连接数
 			MaxConnsPerHost: config.MaxConnsPerHost,
-			// 空闲连接持续时间
-			MaxIdleConnDuration: config.MaxIdleConnDuration,
 			Dial: (&fasthttp.TCPDialer{
 				// 最大并发数，0 表示无限制
 				Concurrency: config.Concurrency,
@@ -117,6 +124,16 @@ func WithDNSCacheDuration(duration time.Duration) OptionFunc {
 	return func(config *Conf) {
 		if duration > 0 {
 			config.DNSCacheDuration = duration
+		}
+	}
+}
+
+// WithMaxConnDuration 设置连接最大使用时间
+// 超过此时间后连接会被关闭，避免使用过久的连接
+func WithMaxConnDuration(duration time.Duration) OptionFunc {
+	return func(config *Conf) {
+		if duration > 0 {
+			config.MaxConnDuration = duration
 		}
 	}
 }
