@@ -133,6 +133,7 @@ func shouldFilterLog(msg string) bool {
 		"is seeking to offset",
 		"committed offsets for group",
 		// error中 the kafka reader got an unknown error reading partition 1 of 79029 at offset 2237548: read tcp ->: i/o timeout 一般是因为maxwait时间太短 时间内没有收到数据 可以调整大一点
+		"i/o timeout",
 		// i/o timeout 就会 重新initializing kafka reader
 		"initializing kafka reader",
 		// writing 1 messages to 79034 (partition: 0)
