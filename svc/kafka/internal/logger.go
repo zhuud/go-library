@@ -49,6 +49,9 @@ func newWriterErrorLogger(topic string) *writerErrorLogger {
 }
 
 func (l *writerErrorLogger) Printf(msg string, args ...any) {
+	if shouldFilterLog(msg) {
+		return
+	}
 	l.logger.Errorf(msg, args...)
 }
 
@@ -94,6 +97,9 @@ func newReaderErrorLogger(group string) *readerErrorLogger {
 }
 
 func (l *readerErrorLogger) Printf(msg string, args ...any) {
+	if shouldFilterLog(msg) {
+		return
+	}
 	l.logger.Errorf(msg, args...)
 }
 
