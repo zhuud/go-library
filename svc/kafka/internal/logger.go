@@ -1,10 +1,14 @@
 package internal
 
 import (
+	"fmt"
 	"strings"
 
 	"github.com/zeromicro/go-zero/core/logx"
 )
+
+var enableInfoLog = false
+
 
 // kafkaLogger 是 logx 链式调用的结果接口，用于缓存带字段的 logger，避免重复创建
 type kafkaLogger interface {
@@ -26,6 +30,9 @@ func newWriterLogger(topic string) *writerLogger {
 }
 
 func (l *writerLogger) Printf(msg string, args ...any) {
+	if !enableInfoLog {
+		return
+	}
 	if shouldFilterLog(msg) {
 		return
 	}
@@ -72,8 +79,9 @@ func newReaderLogger(group string) *readerLogger {
 }
 
 func (l *readerLogger) Printf(msg string, args ...any) {
-	// 过滤某些日志，不打印 eg no messages received from kafka within the allocated time
-	// the kafka reader for partition 3 of 79029 is seeking to offset 2208925
+	if !enableInfoLog {
+		return
+	}
 	if shouldFilterLog(msg) {
 		return
 	}
@@ -97,7 +105,12 @@ func newReaderErrorLogger(group string) *readerErrorLogger {
 }
 
 func (l *readerErrorLogger) Printf(msg string, args ...any) {
-	if shouldFilterLog(msg) {
+	// 先把 msg+args 格式化一遍，让过滤逻辑能匹配到参数里的错误文案（如 read tcp / dial tcp / i/o timeout）
+	formatted := msg
+	if len(args) > 0 {
+		formatted = fmt.Sprintf(msg, args...)
+	}
+	if shouldFilterLog(formatted) {
 		return
 	}
 	l.logger.Errorf(msg, args...)
@@ -130,20 +143,28 @@ func (l *delayLogger) Infof(format string, args ...any) {
 // shouldFilterLog 判断是否应该过滤该日志
 // 返回 true 表示应该过滤（不打印），false 表示正常打印
 func shouldFilterLog(msg string) bool {
+	// 过滤某些日志，不打印 eg
+	// no messages received from kafka within the allocated time
+	// the kafka reader for partition 3 of 79029 is seeking to offset 2208925
+	// initializing kafka reader for partition ... starting at offset ...
+	// writing 1 messages to 79034 (partition: 0)
+	// committed offsets for group ...
 	// 转换为小写进行匹配，提高匹配的容错性
 	lowerMsg := strings.ToLower(msg)
 
 	// 定义需要过滤的关键词列表（已转换为小写）
 	filterKeywords := []string{
-		"no messages received",
+		// kafka-go reader 正常信息类（噪音）
+		"no messages received from kafka within the allocated time",
 		"is seeking to offset",
 		"committed offsets for group",
-		// error中 the kafka reader got an unknown error reading partition 1 of 79029 at offset 2237548: read tcp ->: i/o timeout 一般是因为maxwait时间太短 时间内没有收到数据 可以调整大一点
-		"i/o timeout",
-		// i/o timeout 就会 重新initializing kafka reader
 		"initializing kafka reader",
-		// writing 1 messages to 79034 (partition: 0)
-		"writing",
+		"writing ", // writing X messages to ...
+
+		// 网络抖动/可恢复错误
+		"i/o timeout",
+		"read tcp ",
+		"dial tcp ",
 	}
 
 	// 检查消息是否包含任何需要过滤的关键词

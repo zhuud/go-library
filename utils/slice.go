@@ -1,34 +1,22 @@
 package utils
 
-import "reflect"
-
 // ArrayIn[V comparable](needle V, haystack []V) bool ：Checks if a value exists within a slice.
 // ArraySearch[V comparable](needle V, haystack []V) int ：Searches for a value in a slice and returns its index.
 // ArrayDiff[V comparable](array1 []V, arrayOthers ...[]V) []V ：Returns a new slice containing elements that are in the first slice but not in any of the others.
 // ArrayIntersect[V comparable](array1 []V, arrayOthers ...[]V) []V ：Returns a new slice containing elements that are common to all the input slices.
 // ArrayColumn[M ~[]map[K]V, K comparable, V any](m M, key K) []V ：Retrieves values from a slice of maps by a specified key.
-// ArrayUnique[V comparable](idList []V) []V ：Returns a slice with unique elements from the original slice.
+// ArrayUnique[V comparable](idList []V, filterZero ...bool) []V ：Returns a slice with unique elements from the original slice.
 // ArrayKey[M ~map[K]V, K comparable, V any](m M) []K ：Returns the keys from a map as a slice.
 // ArrayValue[M ~map[K]V, K comparable, V any](m M, sort ...K) []V ：Returns the values from a map as a slice. Optionally, it can return the values sorted by the provided keys.
 // ArrayUnset[V comparable](s []V, elems ...V) []V ：Removes specified elements from a slice.
 
 func ArrayIn[V comparable](needle V, haystack []V) bool {
-	if len(haystack) <= 8 {
-		for _, v := range haystack {
-			if needle == v {
-				return true
-			}
-		}
-		return false
-	}
-
-	cache := make(map[V]bool, len(haystack))
 	for _, v := range haystack {
-		if _, ok := cache[v]; !ok {
-			cache[v] = true
+		if needle == v {
+			return true
 		}
 	}
-	return cache[needle]
+	return false
 }
 
 func ArraySearch[V comparable](needle V, haystack []V) int {
@@ -101,12 +89,16 @@ func ArrayColumn[M ~[]map[K]V, K comparable, V any](m M, key K) []V {
 	return r
 }
 
-func ArrayUnique[V comparable](idList []V) []V {
+func ArrayUnique[V comparable](idList []V, filterZero ...bool) []V {
 	uiqIdList := make([]V, 0, len(idList))
-	tmp := make(map[V]struct{})
+	tmp := make(map[V]struct{}, len(idList))
+	shouldFilterZero := true
+	if len(filterZero) > 0 {
+		shouldFilterZero = filterZero[0]
+	}
+	var zero V
 	for _, id := range idList {
-		rf := reflect.ValueOf(id)
-		if rf.IsZero() {
+		if shouldFilterZero && id == zero {
 			continue // 跳过零值
 		}
 		if _, ok := tmp[id]; !ok {
@@ -145,16 +137,18 @@ func ArrayUnset[V comparable](s []V, elems ...V) []V {
 	if len(s) == 0 {
 		return s
 	}
-	r := make([]V, 0, len(s))
+	if len(elems) == 0 {
+		return s
+	}
 
+	removeSet := make(map[V]struct{}, len(elems))
+	for _, elem := range elems {
+		removeSet[elem] = struct{}{}
+	}
+
+	r := make([]V, 0, len(s))
 	for _, v := range s {
-		flag := true
-		for _, elem := range elems {
-			if v == elem {
-				flag = false
-			}
-		}
-		if flag {
+		if _, ok := removeSet[v]; !ok {
 			r = append(r, v)
 		}
 	}
