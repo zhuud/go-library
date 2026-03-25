@@ -5,6 +5,7 @@ import (
 	_ "embed"
 	"encoding/json"
 	"fmt"
+	"regexp"
 	"sync"
 	"time"
 
@@ -17,6 +18,8 @@ import (
 )
 
 type (
+	// handler 消息处理函数 需要注意超时问题 如果不超时被挂住会阻塞后续消息处理
+
 	// DelayData 延迟队列数据
 	DelayData struct {
 		Topic     string `json:"topic"`
@@ -36,9 +39,11 @@ type (
 		BatchSize int
 		// 最大重试次数
 		MaxRetryAttempts int
+		// Push 允许的最大延迟（从入队时刻起），默认 7 天
+		MaxPushDelayDuration time.Duration
 		// 重试延迟时间
 		RetryDelayDuration time.Duration
-		// 并发处理协程数，默认 10
+		// 并发处理协程数，默认 100
 		Concurrency int
 	}
 
@@ -47,16 +52,17 @@ type (
 	// 支持消息重试机制
 	// 支持 metrics 统计
 	Delayer struct {
-		client             *redis.Redis
-		metrics            *stat.Metrics
-		prefix             string
-		batchSize          int
-		maxRetryAttempts   int
-		retryDelayDuration time.Duration
-		concurrency        int // 并发处理协程数
-		popScript          *redis.Script
-		releaseScript      *redis.Script
-		logger             *delayLogger
+		client               *redis.Redis
+		metrics              *stat.Metrics
+		prefix               string
+		batchSize            int
+		maxRetryAttempts     int
+		retryDelayDuration   time.Duration
+		maxPushDelayDuration time.Duration
+		concurrency          int // 并发处理协程数
+		popScript            *redis.Script
+		releaseScript        *redis.Script
+		logger               *delayLogger
 	}
 
 	// MessageHandler 消息处理函数
@@ -76,6 +82,8 @@ const (
 	defaultBatchSize = 1000
 	// 延迟任务失败重试次数
 	defaultMaxRetryAttempts = 2
+	// Push 最大延迟默认上限
+	defaultMaxPushDelayDuration = time.Hour * 24 * 7
 	// 延迟任务失败重试时间
 	defaultRetryDelay = time.Minute
 	// 默认并发处理协程数
@@ -90,6 +98,10 @@ var (
 	//go:embed delayer_release.lua
 	releaseLuaScript string
 	releaseScript    = redis.NewScript(releaseLuaScript)
+
+	// 尽力从损坏 JSON 中抽取 timestamp，用于 reserved key 分片删除。
+	// 例如: "timestamp": 1710000000 或 "timestamp": "1710000000"
+	delayJSONTimestampRegexp = regexp.MustCompile(`"timestamp"\s*:\s*(?:"(-?\d+)"|(-?\d+))`)
 )
 
 // NewDelayer 创建新的延迟队列实例
@@ -99,27 +111,33 @@ func NewDelayer(redisClient *redis.Redis, opts ...DelayOptionFunc) *Delayer {
 	}
 
 	config := DelayConf{
-		BatchSize:          defaultBatchSize,
-		MaxRetryAttempts:   defaultMaxRetryAttempts,
-		RetryDelayDuration: defaultRetryDelay,
-		Concurrency:        defaultConcurrency,
+		BatchSize:            defaultBatchSize,
+		MaxRetryAttempts:     defaultMaxRetryAttempts,
+		MaxPushDelayDuration: defaultMaxPushDelayDuration,
+		RetryDelayDuration:   defaultRetryDelay,
+		Concurrency:          defaultConcurrency,
 	}
 
 	for _, opt := range opts {
 		opt(&config)
 	}
 
+	if config.MaxPushDelayDuration < time.Second {
+		config.MaxPushDelayDuration = defaultMaxPushDelayDuration
+	}
+
 	return &Delayer{
-		client:             redisClient,
-		metrics:            stat.NewMetrics("kafka.delay"),
-		prefix:             config.Prefix,
-		batchSize:          config.BatchSize,
-		maxRetryAttempts:   config.MaxRetryAttempts,
-		retryDelayDuration: config.RetryDelayDuration,
-		concurrency:        config.Concurrency,
-		popScript:          popScript,
-		releaseScript:      releaseScript,
-		logger:             newDelayLogger(),
+		client:               redisClient,
+		metrics:              stat.NewMetrics("kafka.delay"),
+		prefix:               config.Prefix,
+		batchSize:            config.BatchSize,
+		maxRetryAttempts:     config.MaxRetryAttempts,
+		retryDelayDuration:   config.RetryDelayDuration,
+		maxPushDelayDuration: config.MaxPushDelayDuration,
+		concurrency:          config.Concurrency,
+		popScript:            popScript,
+		releaseScript:        releaseScript,
+		logger:               newDelayLogger(),
 	}
 }
 
@@ -128,8 +146,8 @@ func (dl *Delayer) Push(ctx context.Context, topic string, data any, delayDurati
 	if len(topic) == 0 {
 		return fmt.Errorf("kafka.delay.Push topic must not be empty")
 	}
-	if delayDuration < time.Second || delayDuration > time.Hour*24*7 {
-		return fmt.Errorf("kafka.delay.Push delayDuration must be at least 1 second and at most 7 days")
+	if delayDuration < time.Second || delayDuration > dl.maxPushDelayDuration {
+		return fmt.Errorf("kafka.delay.Push delayDuration must be at least 1 second and at most %v", dl.maxPushDelayDuration)
 	}
 
 	ts := time.Now().Add(delayDuration).Unix()
@@ -253,8 +271,18 @@ func (dl *Delayer) process(handler MessageHandler, taskJson string) {
 	err := json.Unmarshal([]byte(taskJson), &delayData)
 	if err != nil {
 		dl.logger.Errorf("kafka.delay.process Unmarshal data: %s, error: %v", taskJson, err)
-		// 无法解析的数据直接删除
-		_ = dl.SuccessAck(0, taskJson, now)
+		// 无法解析的数据：仅通过正则匹配 timestamp 后确认 reserved（避免传 0 造成分片 key 不对）。
+		var ts int64
+		if sub := delayJSONTimestampRegexp.FindStringSubmatch(taskJson); len(sub) >= 3 {
+			raw := sub[1]
+			if raw == "" {
+				raw = sub[2]
+			}
+			if raw != "" {
+				ts = cast.ToInt64(raw)
+			}
+		}
+		_ = dl.SuccessAck(ts, taskJson, now)
 		return
 	}
 

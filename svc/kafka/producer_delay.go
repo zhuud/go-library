@@ -88,6 +88,15 @@ func WithDelayMaxRetryAttempts(attempts int) DelayOptionFunc {
 	}
 }
 
+// WithDelayMaxPushDelay 配置 Push 允许的最大延迟时长，默认 7 天；传入值需 >= 1s 才生效
+func WithDelayMaxPushDelay(d time.Duration) DelayOptionFunc {
+	return func(config *internal.DelayConf) {
+		if d >= time.Second {
+			config.MaxPushDelayDuration = d
+		}
+	}
+}
+
 // WithDelayRetryDelay 配置重试延迟时间
 func WithDelayRetryDelay(delay time.Duration) DelayOptionFunc {
 	return func(config *internal.DelayConf) {
