@@ -122,10 +122,6 @@ func NewDelayer(redisClient *redis.Redis, opts ...DelayOptionFunc) *Delayer {
 		opt(&config)
 	}
 
-	if config.MaxPushDelayDuration < time.Second {
-		config.MaxPushDelayDuration = defaultMaxPushDelayDuration
-	}
-
 	return &Delayer{
 		client:               redisClient,
 		metrics:              stat.NewMetrics("kafka.delay"),
