@@ -6,6 +6,7 @@ import (
 	"time"
 
 	"github.com/davecgh/go-spew/spew"
+	"github.com/zeromicro/go-zero/core/proc"
 	"github.com/zeromicro/go-zero/core/stores/redis"
 )
 
@@ -19,8 +20,8 @@ var (
 )
 
 func Test_Delay(t *testing.T) {
-	DelaySetUp(r, "wechat", WithDelayBatchSize(1000))
+	DelaySetUp(r, WithDelayBatchSize(1000))
 	err := PushDelay(ctx, "5002", map[string]interface{}{"sss": 1}, time.Second*5)
 	spew.Dump(err)
-	time.Sleep(time.Second * 100)
+	proc.Shutdown()
 }

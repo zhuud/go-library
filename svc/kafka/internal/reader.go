@@ -70,10 +70,10 @@ type (
 		StartOffset int64 // 起始 offset，FirstOffset(-2) 或 LastOffset(-1)，默认 LastOffset(-1)
 
 		// 性能配置
-		MinBytes       int           // 最小字节数，默认 10K（kafka-go 默认 1）
+		MinBytes       int           // 最小字节数，默认 128字节（kafka-go 默认 1）
 		MaxBytes       int           // 最大字节数，默认 4M（kafka-go 默认 1M）
-		MaxWait        time.Duration // 等待新数据的最大时间，默认 50ms（kafka-go 默认 10 秒）
-		CommitInterval time.Duration // 提交偏移量的间隔，默认 200ms（kafka-go 默认 0，同步提交）
+		MaxWait        time.Duration // 等待新数据的最大时间，默认 100ms（kafka-go 默认 10 秒）
+		CommitInterval time.Duration // 提交偏移量的间隔，默认 400ms（kafka-go 默认 0，同步提交）
 		QueueCapacity  int           // 内部消息队列容量，默认 1000（kafka-go 默认 100）
 
 		// 网络配置

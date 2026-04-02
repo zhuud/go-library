@@ -30,9 +30,6 @@ func newWriterLogger(topic string) *writerLogger {
 }
 
 func (l *writerLogger) Printf(msg string, args ...any) {
-	if !enableInfoLog {
-		return
-	}
 	if shouldFilterLog(msg) {
 		return
 	}
@@ -118,26 +115,6 @@ func (l *readerErrorLogger) Printf(msg string, args ...any) {
 
 func (l *readerErrorLogger) Slowf(format string, args ...any) {
 	l.logger.Slowf(format, args...)
-}
-
-// delayLoggerImpl 是使用 logx 实现的 kafka.delay 模块的 logger
-type delayLogger struct {
-	logger kafkaLogger
-}
-
-func newDelayLogger() *delayLogger {
-	return &delayLogger{
-		logger: logx.WithCallerSkip(1).
-			WithFields(logx.Field("component", "kafka.delay")),
-	}
-}
-
-func (l *delayLogger) Errorf(format string, args ...any) {
-	l.logger.Errorf(format, args...)
-}
-
-func (l *delayLogger) Infof(format string, args ...any) {
-	l.logger.Infof(format, args...)
 }
 
 // shouldFilterLog 判断是否应该过滤该日志
