@@ -8,11 +8,6 @@ import (
 	"github.com/zhuud/go-library/svc/conf"
 )
 
-var (
-	// enableSlowLog 是否启用慢日志打印，默认为 true
-	enableSlowLog = true
-)
-
 const (
 	// defaultReaderSlowThreshold 默认慢日志阈值，超过此耗时的消息将打印慢日志
 	defaultReaderSlowThreshold = time.Second * 3
@@ -25,17 +20,6 @@ type KafkaConf struct {
 	Username string   `json:"username"`
 	Password string   `json:"password"`
 	CaFile   string   `json:"ca_file"`
-}
-
-// SetEnableSlowLog 设置是否启用慢日志打印（全局开关）
-// 默认为 true，设置为 false 可以关闭所有 Kafka reader 和 writer 的慢日志打印
-func SetEnableSlowLog(enable bool) {
-	enableSlowLog = enable
-}
-
-// EnableSlowLog 获取是否启用慢日志打印
-func EnableSlowLog() bool {
-	return enableSlowLog
 }
 
 // GetServers 获取 Kafka 服务器地址列表

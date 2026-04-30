@@ -1,8 +1,16 @@
 package internal
 
 import (
+	"context"
+
 	"github.com/segmentio/kafka-go"
+	"github.com/zhuud/go-library/utils"
+	"go.opentelemetry.io/otel"
 	"go.opentelemetry.io/otel/propagation"
+)
+
+var (
+	kafkaTracer = otel.Tracer("github.com/zhuud/go-library/svc/kafka")
 )
 
 // Message wraps kafka.Message and provides convenient methods for header manipulation.
@@ -70,4 +78,21 @@ func (m MessageCarrier) Keys() []string {
 		out[i] = h.Key
 	}
 	return out
+}
+
+func injectContextToMessage(ctx context.Context, msg *kafka.Message) {
+	// wrap message into message carrier
+	mc := NewMessageCarrier(NewMessage(msg))
+	// inject trace context into message
+	otel.GetTextMapPropagator().Inject(ctx, mc)
+}
+
+func contextFromMessage(msg kafka.Message) context.Context {
+	// wrap message into message carrier
+	mc := NewMessageCarrier(NewMessage(&msg))
+	// extract trace context from message
+	ctx := otel.GetTextMapPropagator().Extract(context.Background(), mc)
+	// remove deadline and cancel to isolate consumer processing timeout/cancel semantics
+	ctx = utils.StripContext(ctx)
+	return ctx
 }

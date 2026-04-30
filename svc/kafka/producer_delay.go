@@ -46,7 +46,7 @@ func DelaySetUp(redis *redis.Redis, opts ...DelayOptionFunc) {
 
 		proc.AddWrapUpListener(func() {
 			dl.Stop()
-			log.Printf("kafka.delay consumer stopped, prefix: %s", delayPrefix)
+			log.Printf("kafka.delayer consumer closed, prefix:%s", delayPrefix)
 		})
 
 		delayInstance = dl
@@ -57,7 +57,7 @@ func DelaySetUp(redis *redis.Redis, opts ...DelayOptionFunc) {
 // 必须先调用 DelaySetUp 完成初始化。
 func PushDelay(ctx context.Context, topic string, data any, delayDuration time.Duration) error {
 	if delayInstance == nil {
-		return fmt.Errorf("kafka.PushDelay delay not set up, call DelaySetUp first")
+		return fmt.Errorf("kafka.delayer not set up, call DelaySetUp first")
 	}
 	return delayInstance.Push(ctx, topic, data, delayDuration)
 }

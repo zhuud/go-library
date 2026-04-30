@@ -8,12 +8,7 @@ import (
 	"github.com/segmentio/kafka-go"
 	"github.com/zeromicro/go-zero/core/breaker"
 	"github.com/zeromicro/go-zero/core/stat"
-	"go.opentelemetry.io/otel"
-)
-
-var (
-	// defaultWriterBalancer 默认分区平衡器
-	defaultWriterBalancer = &kafka.LeastBytes{}
+	"go.opentelemetry.io/otel/trace"
 )
 
 const (
@@ -29,6 +24,11 @@ const (
 	defaultWriterBatchTimeout = 50 * time.Millisecond
 	// defaultWriterAsync 默认是否异步模式
 	defaultWriterAsync = true
+)
+
+var (
+	// defaultWriterBalancer 默认分区平衡器
+	defaultWriterBalancer = &kafka.LeastBytes{}
 )
 
 // Kafka Writer
@@ -78,20 +78,19 @@ type (
 	}
 
 	Writer struct {
-		topic       string
-		writer      kafkaWriter
-		metrics     *stat.Metrics
-		infoLogger  *writerLogger
-		errorLogger *writerErrorLogger
-		breaker     breaker.Breaker // 断路器（可选），如果为 nil 则不启用熔断
+		topic   string
+		writer  kafkaWriter
+		metrics *stat.Metrics
+		logger  *eventLogger
+		breaker breaker.Breaker // 断路器（可选），如果为 nil 则不启用熔断
+		async   bool
 	}
 )
 
 // NewWriter 创建 Writer 实例
 func NewWriter(addrs []string, topic string, opts ...WriterOptionFunc) *Writer {
-	// 创建 logger 实例
-	infoLogger := newWriterLogger(topic)
 	errorLogger := newWriterErrorLogger(topic)
+	eventLogger := newWriterEventLogger(topic)
 	metrics := stat.NewMetrics("kafka.writer." + topic)
 
 	var config WriterConf
@@ -106,11 +105,10 @@ func NewWriter(addrs []string, topic string, opts ...WriterOptionFunc) *Writer {
 		BatchBytes:   defaultWriterBatchBytes,
 		BatchTimeout: defaultWriterBatchTimeout,
 		Async:        defaultWriterAsync,
-		Completion:   newDefaultCompletionCallback(infoLogger, errorLogger, metrics),
+		Completion:   newDefaultCompletionCallback(eventLogger, metrics),
 		RequiredAcks: defaultWriterRequiredAcks,
 		Balancer:     defaultWriterBalancer,
 		Compression:  defaultWriterCompression,
-		Logger:       infoLogger,
 		ErrorLogger:  errorLogger,
 	}
 
@@ -169,24 +167,27 @@ func NewWriter(addrs []string, topic string, opts ...WriterOptionFunc) *Writer {
 	}
 
 	return &Writer{
-		topic:       topic,
-		writer:      writer,
-		metrics:     metrics,
-		infoLogger:  infoLogger,
-		errorLogger: errorLogger,
-		breaker:     config.Breaker, // 使用配置中的 breaker，如果为 nil 则不启用熔断
+		topic:   topic,
+		writer:  writer,
+		metrics: metrics,
+		logger:  eventLogger,
+		breaker: config.Breaker, // 使用配置中的 breaker，如果为 nil 则不启用熔断
+		async:   writer.Async,
 	}
-}
-
-// Close 关闭 Writer 并释放资源
-func (w *Writer) Close() error {
-	return w.writer.Close()
 }
 
 // Name 返回 Writer 发送消息的 topic 名称
 func (w *Writer) Name() string {
 	return w.topic
 }
+
+
+// Close 关闭 Writer 并释放资源
+func (w *Writer) Close() error {
+	return w.writer.Close()
+}
+
+
 
 // Push 发送消息到 Kafka topic
 func (w *Writer) Push(ctx context.Context, v string) error {
@@ -195,23 +196,35 @@ func (w *Writer) Push(ctx context.Context, v string) error {
 
 // PushWithKey 发送带 key 的消息到 Kafka topic
 func (w *Writer) PushWithKey(ctx context.Context, key, v string) error {
+	ctx, span := kafkaTracer.Start(ctx, "push",
+		trace.WithSpanKind(trace.SpanKindProducer),
+	)
+	defer span.End()
+
 	msg := kafka.Message{
 		Key:   []byte(key),
 		Value: []byte(v),
 	}
+	injectContextToMessage(ctx, &msg)
 
-	// wrap message into message carrier
-	mc := NewMessageCarrier(NewMessage(&msg))
-	// inject trace context into message
-	otel.GetTextMapPropagator().Inject(ctx, mc)
+	w.logger.Infof(ctx, "push message key:%s, value:%s", key, v)
 
 	// 如果配置了断路器，使用断路器包装请求执行
 	if w.breaker != nil {
-		return w.breaker.DoCtx(ctx, func() error {
+		if err := w.breaker.DoCtx(ctx, func() error {
 			return w.writer.WriteMessages(ctx, msg)
-		})
+		}); err != nil {
+			w.logger.Errorf(ctx, "push message failed, key:%s, value:%s, error:%v", key, v, err)
+			return err
+		}
+		return nil
 	}
 
 	// 如果没有配置断路器，直接执行请求
-	return w.writer.WriteMessages(ctx, msg)
+	if err := w.writer.WriteMessages(ctx, msg); err != nil {
+		w.logger.Errorf(ctx, "push message failed, key:%s, value:%s, error:%v", key, v, err)
+		return err
+	}
+
+	return nil
 }

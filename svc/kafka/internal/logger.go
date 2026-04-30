@@ -1,155 +1,212 @@
 package internal
 
 import (
+	"context"
 	"fmt"
 	"strings"
+	"sync"
+	"time"
 
 	"github.com/zeromicro/go-zero/core/logx"
 )
 
-var enableInfoLog = false
+const (
+	defaultKafkaLogThrottleWindow = time.Minute
+)
 
-
-// kafkaLogger 是 logx 链式调用的结果接口，用于缓存带字段的 logger，避免重复创建
-type kafkaLogger interface {
-	Infof(format string, args ...any)
-	Errorf(format string, args ...any)
-	Slowf(format string, args ...any)
+type kafkaLogger struct {
+	logger  logx.Logger
+	limiter *logLimiter
 }
 
-// writerLogger 是使用 logx 实现的 kafka.Logger，支持按 topic 区分
-type writerLogger struct {
-	logger kafkaLogger
+func newWriterErrorLogger(topic string) *kafkaLogger {
+	return newKafkaLogger("kafka.writer", logx.Field("topic", topic))
 }
 
-func newWriterLogger(topic string) *writerLogger {
-	return &writerLogger{
-		logger: logx.WithCallerSkip(1).
-			WithFields(logx.Field("component", "kafka.writer"), logx.Field("topic", topic)),
+func newReaderErrorLogger(topic, group string) *kafkaLogger {
+	return newKafkaLogger("kafka.reader", logx.Field("topic", topic), logx.Field("group", group))
+}
+
+func newKafkaLogger(component string, fields ...logx.LogField) *kafkaLogger {
+	fields = append([]logx.LogField{
+		logx.Field("component", component),
+	}, fields...)
+	return &kafkaLogger{
+		logger:  logx.WithCallerSkip(1).WithFields(fields...),
+		limiter: newLogLimiter(defaultKafkaLogThrottleWindow),
 	}
 }
 
-func (l *writerLogger) Printf(msg string, args ...any) {
-	if shouldFilterLog(msg) {
+func (l *kafkaLogger) Printf(msg string, args ...any) {
+	formatted := fmt.Sprintf(msg, args...)
+	category := classifyKafkaLog(formatted)
+	allowed, suppressed := l.limiter.Allow(category)
+	if !allowed {
 		return
 	}
-	l.logger.Infof(msg, args...)
+	fields := []logx.LogField{
+		logx.Field("category", category),
+		logx.Field("suppressed_count", suppressed),
+	}
+	l.logger.WithFields(fields...).Error(formatted)
 }
 
-func (l *writerLogger) Slowf(format string, args ...any) {
-	l.logger.Slowf(format, args...)
+
+
+
+type eventLogger struct {
+	logger logx.Logger
 }
 
-// writerErrorLogger 是使用 logx 实现的 kafka.Logger，支持按 topic 区分
-type writerErrorLogger struct {
-	logger kafkaLogger
+func newWriterEventLogger(topic string) *eventLogger {
+	return newEventLogger("kafka.writer", logx.Field("topic", topic))
 }
 
-func newWriterErrorLogger(topic string) *writerErrorLogger {
-	return &writerErrorLogger{
-		logger: logx.WithCallerSkip(1).
-			WithFields(logx.Field("component", "kafka.writer"), logx.Field("topic", topic)),
+func newReaderEventLogger(topic, group string) *eventLogger {
+	return newEventLogger("kafka.reader", logx.Field("topic", topic), logx.Field("group", group))
+}
+
+func newEventLogger(component string, fields ...logx.LogField) *eventLogger {
+	fields = append([]logx.LogField{
+		logx.Field("component", component),
+	}, fields...)
+	return &eventLogger{
+		logger: logx.WithCallerSkip(1).WithFields(fields...),
 	}
 }
 
-func (l *writerErrorLogger) Printf(msg string, args ...any) {
-	if shouldFilterLog(msg) {
-		return
-	}
-	l.logger.Errorf(msg, args...)
+func (l *eventLogger) Infof(ctx context.Context, format string, args ...any) {
+	l.withContextFields(ctx).Infof(format, args...)
 }
 
-func (l *writerErrorLogger) Slowf(format string, args ...any) {
-	l.logger.Slowf(format, args...)
+func (l *eventLogger) Errorf(ctx context.Context, format string, args ...any) {
+	l.withContextFields(ctx).Errorf(format, args...)
 }
 
-// readerLogger 是使用 logx 实现的 kafka.Logger，支持按 topic 区分
-type readerLogger struct {
-	logger kafkaLogger
+func (l *eventLogger) Slowf(ctx context.Context, format string, args ...any) {
+	l.withContextFields(ctx).Slowf(format, args...)
 }
 
-func newReaderLogger(group string) *readerLogger {
-	return &readerLogger{
-		logger: logx.WithCallerSkip(1).
-			WithFields(logx.Field("component", "kafka.reader"), logx.Field("group", group)),
-	}
+func (l *eventLogger) withContextFields(ctx context.Context) logx.Logger {
+	return l.logger.WithContext(ctx)
 }
 
-func (l *readerLogger) Printf(msg string, args ...any) {
-	if !enableInfoLog {
-		return
-	}
-	if shouldFilterLog(msg) {
-		return
-	}
-	l.logger.Infof(msg, args...)
+
+
+
+type logLimiter struct {
+	mu      sync.Mutex
+	window  time.Duration
+	records map[string]logLimitRecord
 }
 
-func (l *readerLogger) Slowf(format string, args ...any) {
-	l.logger.Slowf(format, args...)
+type logLimitRecord struct {
+	last       time.Time
+	suppressed int64
 }
 
-// readerErrorLogger 是使用 logx 实现的 kafka.Logger，支持按 topic 区分
-type readerErrorLogger struct {
-	logger kafkaLogger
-}
-
-func newReaderErrorLogger(group string) *readerErrorLogger {
-	return &readerErrorLogger{
-		logger: logx.WithCallerSkip(1).
-			WithFields(logx.Field("component", "kafka.reader"), logx.Field("group", group)),
+func newLogLimiter(window time.Duration) *logLimiter {
+	return &logLimiter{
+		window:  window,
+		records: make(map[string]logLimitRecord),
 	}
 }
 
-func (l *readerErrorLogger) Printf(msg string, args ...any) {
-	// 先把 msg+args 格式化一遍，让过滤逻辑能匹配到参数里的错误文案（如 read tcp / dial tcp / i/o timeout）
-	formatted := msg
-	if len(args) > 0 {
-		formatted = fmt.Sprintf(msg, args...)
+func (l *logLimiter) Allow(key string) (bool, int64) {
+	now := time.Now()
+	l.mu.Lock()
+	defer l.mu.Unlock()
+	record := l.records[key]
+	if record.last.IsZero() || now.Sub(record.last) >= l.window {
+		suppressed := record.suppressed
+		l.records[key] = logLimitRecord{last: now}
+		return true, suppressed
 	}
-	if shouldFilterLog(formatted) {
-		return
-	}
-	l.logger.Errorf(msg, args...)
+	record.suppressed++
+	l.records[key] = record
+	return false, 0
 }
 
-func (l *readerErrorLogger) Slowf(format string, args ...any) {
-	l.logger.Slowf(format, args...)
-}
-
-// shouldFilterLog 判断是否应该过滤该日志
-// 返回 true 表示应该过滤（不打印），false 表示正常打印
-func shouldFilterLog(msg string) bool {
-	// 过滤某些日志，不打印 eg
-	// no messages received from kafka within the allocated time
-	// the kafka reader for partition 3 of 79029 is seeking to offset 2208925
-	// initializing kafka reader for partition ... starting at offset ...
-	// writing 1 messages to 79034 (partition: 0)
-	// committed offsets for group ...
-	// 转换为小写进行匹配，提高匹配的容错性
-	lowerMsg := strings.ToLower(msg)
-
-	// 定义需要过滤的关键词列表（已转换为小写）
-	filterKeywords := []string{
-		// kafka-go reader 正常信息类（噪音）
-		"no messages received from kafka within the allocated time",
-		"is seeking to offset",
-		"committed offsets for group",
-		"initializing kafka reader",
-		"writing ", // writing X messages to ...
-
-		// 网络抖动/可恢复错误
+func classifyKafkaLog(message string) string {
+	lowerMsg := strings.ToLower(message)
+	switch {
+	case containsAny(lowerMsg,
 		"i/o timeout",
 		"read tcp ",
 		"dial tcp ",
+		"context deadline exceeded",
+		"request timed out",
+		"connection reset by peer",
+		"broken pipe",
+		"unexpected eof",
+		"use of closed network connection",
+		"network exception",
+	):
+		return "network"
+	case containsAny(lowerMsg,
+		"group coordinator",
+		"rebalance",
+		"join group",
+		"sync group",
+		"heartbeat",
+		"not coordinator for group",
+		"group coordinator not available",
+		"group load in progress",
+		"illegal generation",
+		"unknown member id",
+		"inconsistent group protocol",
+		"member id required",
+		"fenced instance id",
+		"group id not found",
+		"group subscribed to topic",
+		"non empty group",
+	):
+		return "consumer_group"
+	case containsAny(lowerMsg,
+		"leader not available",
+		"not leader for partition",
+		"metadata",
+		"unknown topic or partition",
+		"broker not available",
+		"replica not available",
+		"not enough replicas",
+		"stale controller epoch",
+		"not controller",
+		"unknown leader epoch",
+		"fenced leader epoch",
+		"eligible leader not available",
+		"inconsistent topic id",
+		"unknown topic id",
+	):
+		return "metadata"
+	case containsAny(lowerMsg,
+		"offset",
+		"unstable offset commit",
+		"invalid commit offset size",
+		"offset metadata too large",
+	):
+		return "offset"
+	case containsAny(lowerMsg,
+		"sasl authentication failed",
+		"unsupported sasl mechanism",
+		"illegal sasl state",
+		"topic authorization failed",
+		"group authorization failed",
+		"cluster authorization failed",
+		"broker authorization failed",
+		"transactional id authorization failed",
+	):
+		return "auth"
+	default:
+		return "unknown"
 	}
+}
 
-	// 检查消息是否包含任何需要过滤的关键词
-	for _, keyword := range filterKeywords {
-		if strings.Contains(lowerMsg, keyword) {
+func containsAny(s string, keywords ...string) bool {
+	for _, keyword := range keywords {
+		if strings.Contains(s, keyword) {
 			return true
 		}
 	}
-
 	return false
 }

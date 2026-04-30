@@ -9,15 +9,14 @@ import (
 	"io"
 	"log"
 	"os"
-	"runtime"
+	"runtime/debug"
 	"time"
 
 	"github.com/segmentio/kafka-go"
 	"github.com/segmentio/kafka-go/sasl/plain"
 	"github.com/zeromicro/go-zero/core/stat"
 	"github.com/zeromicro/go-zero/core/threading"
-	"github.com/zhuud/go-library/utils"
-	"go.opentelemetry.io/otel"
+	"go.opentelemetry.io/otel/trace"
 )
 
 const (
@@ -104,10 +103,9 @@ type (
 		group            string
 		handler          ConsumeHandler
 		reader           kafkaReader
-		flowMetrics      *stat.Metrics // 流转耗时
+		transitMetrics   *stat.Metrics // 流转耗时
 		bizMetrics       *stat.Metrics // 业务处理耗时
-		infoLogger       *readerLogger
-		errorLogger      *readerErrorLogger
+		logger           *eventLogger
 		channel          chan kafka.Message
 		fetcherRoutines  *threading.RoutineGroup
 		consumerRoutines *threading.RoutineGroup
@@ -118,9 +116,6 @@ type (
 
 // NewReader 创建 Reader 实例
 func NewReader(brokers []string, topic, group string, handler ConsumeHandler, opts ...ReaderOptionFunc) *Reader {
-	// 创建 logger 实例
-	infoLogger := newReaderLogger(group)
-	errorLogger := newReaderErrorLogger(group)
 
 	var config ReaderConf
 	for _, opt := range opts {
@@ -139,8 +134,7 @@ func NewReader(brokers []string, topic, group string, handler ConsumeHandler, op
 		CommitInterval:        defaultCommitInterval,
 		QueueCapacity:         defaultQueueCapacity,
 		WatchPartitionChanges: defaultWatchPartitionChanges,
-		Logger:                infoLogger,
-		ErrorLogger:           errorLogger,
+		ErrorLogger:           newReaderErrorLogger(topic, group),
 	}
 
 	// 应用配置（只设置显式配置的选项）
@@ -250,10 +244,9 @@ func NewReader(brokers []string, topic, group string, handler ConsumeHandler, op
 		group:            group,
 		handler:          handler,
 		reader:           reader,
-		flowMetrics:      stat.NewMetrics("kafka.reader.flow." + group),
+		transitMetrics:   stat.NewMetrics("kafka.reader.transit." + group),
 		bizMetrics:       stat.NewMetrics("kafka.reader.biz." + group),
-		infoLogger:       infoLogger,
-		errorLogger:      errorLogger,
+		logger:           newReaderEventLogger(topic, group),
 		channel:          make(chan kafka.Message),
 		fetcherRoutines:  threading.NewRoutineGroup(),
 		consumerRoutines: threading.NewRoutineGroup(),
@@ -262,9 +255,14 @@ func NewReader(brokers []string, topic, group string, handler ConsumeHandler, op
 	}
 }
 
-// Close 关闭 Reader 并释放资源
-func (r *Reader) Close() error {
-	return r.reader.Close()
+// Name 返回 Reader 读取的 topic 名称
+func (r *Reader) Name() string {
+	return r.topic
+}
+
+// Group 返回消费者组 ID
+func (r *Reader) Group() string {
+	return r.group
 }
 
 // Start 启动消费者和处理协程
@@ -275,62 +273,56 @@ func (r *Reader) Start() {
 	close(r.channel)
 	r.consumerRoutines.Wait()
 
-	r.infoLogger.Printf("kafka.reader consumer %s closed", r.group)
+	r.logger.Infof(context.Background(), "consumers closed")
 }
 
 // Stop 停止 Reader 并释放资源
 func (r *Reader) Stop() {
 	if err := r.reader.Close(); err != nil {
-		r.errorLogger.Printf("kafka.reader close error: %v", err)
+		r.logger.Errorf(context.Background(), "reader close error: %v", err)
 	}
 }
 
 // startConsumers 启动消费协程处理消息
 func (r *Reader) startConsumers() {
 	for i := 0; i < r.consumers; i++ {
-		r.consumerRoutines.Run(func() {
+		r.consumerRoutines.RunSafe(func() {
 			for msg := range r.channel {
-				// wrap message into message carrier
-				mc := NewMessageCarrier(NewMessage(&msg))
-				// extract trace context from message
-				ctx := otel.GetTextMapPropagator().Extract(context.Background(), mc)
-				// remove deadline and cancel to isolate consumer processing timeout/cancel semantics
-				ctx = utils.StripContext(ctx)
+				func() {
+					ctx := contextFromMessage(msg)
+					ctx, span := kafkaTracer.Start(ctx, "consume",
+						trace.WithSpanKind(trace.SpanKindConsumer),
+					)
+					defer span.End()
 
-				if err := r.consumeOne(ctx, msg); err != nil {
-					r.errorLogger.Printf("kafka.reader.consumeOne failed: topic=%s, partition=%d, offset=%d, key=%s, message=%s, error=%v",
-						msg.Topic, msg.Partition, msg.Offset, string(msg.Key), string(msg.Value), err)
-				}
+					r.logger.Infof(ctx, "received message partition:%d, offset:%d, key:%s, value:%s", msg.Partition, msg.Offset, string(msg.Key), string(msg.Value))
 
-				if err := r.reader.CommitMessages(ctx, msg); err != nil {
-					r.errorLogger.Printf("kafka.reader.CommitMessages failed: topic=%s, partition=%d, offset=%d, key=%s, message=%s, error=%v",
-						msg.Topic, msg.Partition, msg.Offset, string(msg.Key), string(msg.Value), err)
-				}
+					// 消费业务逻辑
+					r.consumeMessage(ctx, msg)
+
+					if err := r.reader.CommitMessages(ctx, msg); err != nil {
+						r.logger.Errorf(ctx, "commit message failed, partition:%d, offset:%d, key:%s, message:%s, error:%v",
+							msg.Partition, msg.Offset, string(msg.Key), string(msg.Value), err)
+					}
+				}()
 			}
 		})
 	}
 }
 
-// consumeOne 处理单条消息
-func (r *Reader) consumeOne(ctx context.Context, msg kafka.Message) (err error) {
+// consumeMessage 处理单条消息
+func (r *Reader) consumeMessage(ctx context.Context, msg kafka.Message) {
 	now := time.Now()
+	var err error
 
 	// defer recover 处理 panic
 	defer func() {
 		if p := recover(); p != nil {
-			// 获取堆栈信息
-			buf := make([]byte, 4096)
-			n := runtime.Stack(buf, false)
-			stackTrace := string(buf[:n])
-
-			// 构造 panic 错误
-			err = fmt.Errorf("kafka.reader.consumeOne panic: %v\n%s", p, stackTrace)
-
-			// 记录 panic 日志
-			r.errorLogger.Printf("kafka.reader.consumeOne panic: topic=%s, partition=%d, offset=%d, key=%s, message=%s, panic=%v\n%s",
-				msg.Topic, msg.Partition, msg.Offset, string(msg.Key), string(msg.Value), p, stackTrace)
+			err = fmt.Errorf("%+v", p)
+			r.logger.Errorf(ctx, "consume panic partition:%d, offset:%d, key:%s, message:%s, panic:%+v \nstack:%s",
+				msg.Partition, msg.Offset, string(msg.Key), string(msg.Value), p, string(debug.Stack()))
 		}
-		// 统一记录 metrics（panic 时 err != nil，正常错误时 err != nil，都视为失败）
+		// 统一记录 metrics（panic/业务错误都视为失败）
 		duration := time.Since(now)
 		r.bizMetrics.Add(stat.Task{
 			Duration: duration,
@@ -338,33 +330,31 @@ func (r *Reader) consumeOne(ctx context.Context, msg kafka.Message) (err error) 
 		})
 	}()
 
-	// 流转耗时metrics
-	if duration := calculateDurationFromKey(msg.Key, now); duration >= 0 {
-		r.flowMetrics.Add(stat.Task{
+	// 流转从上游push到下游拿到开始消费耗时metrics
+	if duration := calculateDuration(msg, now); duration >= 0 {
+		r.transitMetrics.Add(stat.Task{
 			Duration: duration,
 		})
-		// 如果超过慢日志阈值，打印慢日志
-		if EnableSlowLog() && duration > defaultReaderSlowThreshold {
-			r.infoLogger.Slowf("kafka.reader.flow slow: push_ns=%s, now_ms=%d, duration_ms=%d, topic=%s, partition=%d, offset=%d, group=%s, key=%s, message=%s",
-				string(msg.Key), now.UnixMilli(), duration.Milliseconds(), r.topic, msg.Partition, msg.Offset, r.group, string(msg.Key), string(msg.Value))
+		if duration > defaultReaderSlowThreshold {
+			r.logger.Slowf(ctx, "transit slow partition:%d, offset:%d, key:%s, value:%s, duration:%d", msg.Partition, msg.Offset, string(msg.Key), string(msg.Value), duration)
 		}
 	}
 
 	// 业务逻辑
 	err = r.handler.Consume(ctx, string(msg.Key), string(msg.Value))
-
-	return err
+	if err != nil {
+		r.logger.Errorf(ctx, "consume failed, partition:%d, offset:%d, key:%s, value:%s, error:%v", msg.Partition, msg.Offset, string(msg.Key), string(msg.Value), err)
+	}
 }
 
-// startFetchers 启动获取协程从 Kafka 获取消息
+// startFetchers 启动获取协程从 kafka 获取消息
 func (r *Reader) startFetchers() {
 	for i := 0; i < r.processors; i++ {
-		i := i
-		r.fetcherRoutines.Run(func() {
+		r.fetcherRoutines.RunSafe(func() {
 			if err := r.fetchLoop(func(msg kafka.Message) {
 				r.channel <- msg
 			}); err != nil {
-				r.infoLogger.Printf("kafka.reader %s-%d is closed, error: %q", r.group, i, err.Error())
+				r.logger.Infof(context.Background(), "fetcher closed reason:%v", err)
 				return
 			}
 		})
@@ -378,24 +368,14 @@ func (r *Reader) fetchLoop(handle func(msg kafka.Message)) error {
 		// io.EOF means consumer closed
 		// io.ErrClosedPipe means committing messages on the consumer,
 		// kafka will refire the messages on uncommitted messages, ignore
-		if err == io.EOF || errors.Is(err, io.ErrClosedPipe) {
+		if errors.Is(err, io.EOF) || errors.Is(err, io.ErrClosedPipe) {
 			return err
 		}
 		if err != nil {
-			r.errorLogger.Printf("kafka.reader error on reading message: %q", err.Error())
+			r.logger.Errorf(context.Background(), "fetch message failed, error:%v", err)
 			continue
 		}
 
 		handle(msg)
 	}
-}
-
-// Name 返回 Reader 读取的 topic 名称
-func (r *Reader) Name() string {
-	return r.topic
-}
-
-// Group 返回消费者组 ID
-func (r *Reader) Group() string {
-	return r.group
 }

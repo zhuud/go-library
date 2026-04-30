@@ -1,6 +1,9 @@
 package internal
 
 import (
+	"context"
+	"encoding/json"
+	"runtime/debug"
 	"strconv"
 	"time"
 
@@ -8,75 +11,58 @@ import (
 	"github.com/zeromicro/go-zero/core/stat"
 )
 
-// newDefaultCompletionCallback 创建一个使用 writerLogger 和 writerErrorLogger 的 completion callback
-// 接收已创建的 logger 实例，避免重复实例化
-func newDefaultCompletionCallback(infoLogger *writerLogger, errorLogger *writerErrorLogger, metrics *stat.Metrics) func(messages []kafka.Message, err error) {
+// newDefaultCompletionCallback 创建默认 completion callback，保留失败和慢日志，避免成功投递重复刷屏。
+func newDefaultCompletionCallback(eventLogger *eventLogger, metrics *stat.Metrics) func(messages []kafka.Message, err error) {
 	return func(messages []kafka.Message, err error) {
 		defer func() {
 			if r := recover(); r != nil {
-				errorLogger.Printf("kafka.writer.completion delivery panic: %v, messages: %+v", r, messages)
+				eventLogger.Errorf(context.Background(), "push completion panic messages:%+v, panic:%+v \nstack:%s", messages, r, string(debug.Stack()))
 			}
 		}()
 		now := time.Now()
-		if err != nil {
-			for _, msg := range messages {
-				// 从 key 解析纳秒时间戳并计算耗时
-				if duration := calculateDurationFromKey(msg.Key, now); duration >= 0 {
-					metrics.Add(stat.Task{
-						Duration: duration,
-						Drop:     true,
-					})
-					// 如果超过慢日志阈值，打印慢日志
-					if EnableSlowLog() && duration > defaultWriterSlowThreshold {
-						errorLogger.Slowf("kafka.writer.completion slow: push_ns=%s, now_ms=%d, duration_ms=%d, topic=%s, partition=%d, offset=%d, key=%s, message=%s",
-							string(msg.Key), now.UnixMilli(), duration.Milliseconds(), msg.Topic, msg.Partition, msg.Offset, string(msg.Key), string(msg.Value))
-					}
-				}
-				errorLogger.Printf("kafka.writer.completion message delivered failed: topic=%s, partition=%d, offset=%d, key=%s, message=%s, error=%v",
-					msg.Topic, msg.Partition, msg.Offset, string(msg.Key), string(msg.Value), err)
+
+		for _, msg := range messages {
+			duration := calculateDuration(msg, now)
+			if duration >= 0 {
+				metrics.Add(stat.Task{
+					Duration: duration,
+					Drop:     err != nil,
+				})
 			}
-		} else {
-			for _, msg := range messages {
-				// 从 key 解析纳秒时间戳并计算耗时
-				if duration := calculateDurationFromKey(msg.Key, now); duration >= 0 {
-					metrics.Add(stat.Task{
-						Duration: duration,
-					})
-					// 如果超过慢日志阈值，打印慢日志
-					if EnableSlowLog() && duration > defaultWriterSlowThreshold {
-						infoLogger.Slowf("kafka.writer.completion slow: push_ns=%s, now_ms=%d, duration_ms=%d, topic=%s, partition=%d, offset=%d, key=%s, message=%s",
-							string(msg.Key), now.UnixMilli(), duration.Milliseconds(), msg.Topic, msg.Partition, msg.Offset, string(msg.Key), string(msg.Value))
-					}
+			ctx := contextFromMessage(msg)
+			if duration >= 0 {
+				if duration > defaultWriterSlowThreshold {
+					eventLogger.Slowf(ctx, "delivery slow partition:%d, offset:%d, key:%s, value:%s, duration:%d", msg.Partition, msg.Offset, string(msg.Key), string(msg.Value), duration)
 				}
-				infoLogger.Printf("kafka.writer.completion message delivered: topic=%s, partition=%d, offset=%d, key=%s, message=%s",
-					msg.Topic, msg.Partition, msg.Offset, string(msg.Key), string(msg.Value))
+			}
+			if err != nil {
+				eventLogger.Errorf(ctx, "delivery failed partition:%d, offset:%d, key:%s, value:%s, error:%v", msg.Partition, msg.Offset, string(msg.Key), string(msg.Value), err)
 			}
 		}
 	}
 }
 
-// calculateDurationFromKey 从 key 中解析纳秒时间戳并计算耗时
-// key 是纳秒时间戳的字符串形式
-// 返回耗时，如果解析失败返回 -1
-func calculateDurationFromKey(key []byte, now time.Time) time.Duration {
-	if len(key) == 0 {
-		return -1
+// calculateDuration 优先从 key 解析纳秒时间戳；失败时回退从 value 的 timestamp（Unix秒）解析。
+func calculateDuration(msg kafka.Message, now time.Time) time.Duration {
+	if ts, err := strconv.ParseInt(string(msg.Key), 10, 64); err == nil {
+		if duration := validateDuration(now.Sub(time.Unix(0, ts))); duration >= 0 {
+			return duration
+		}
 	}
 
-	// 解析纳秒时间戳
-	timestamp, err := strconv.ParseInt(string(key), 10, 64)
-	if err != nil {
+	var payload struct {
+		Timestamp int64 `json:"timestamp"`
+	}
+	if err := json.Unmarshal(msg.Value, &payload); err != nil || payload.Timestamp <= 0 {
 		return -1
 	}
+	return validateDuration(now.Sub(time.Unix(payload.Timestamp, 0)))
+}
 
-	// 计算耗时
-	startTime := time.Unix(0, timestamp)
-	duration := now.Sub(startTime)
-
+func validateDuration(duration time.Duration) time.Duration {
 	// 如果耗时异常（负数或过大），返回 -1
 	if duration < 0 || duration > 24*time.Hour {
 		return -1
 	}
-
 	return duration
 }

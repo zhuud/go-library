@@ -59,7 +59,7 @@ func Push(ctx context.Context, topic string, data any, opts ...WriterOptionFunc)
 	}
 	produceJson, err := json.Marshal(produce)
 	if err != nil {
-		logx.WithContext(ctx).Errorf("kafka.Push.Marshal data: %v, error: %v", produce, err)
+		logx.WithContext(ctx).Errorf("kafka.producer.Push.Marshal data: %v, error: %v", produce, err)
 		return err
 	}
 
@@ -79,10 +79,10 @@ func NewProducer(topic string, opts ...WriterOptionFunc) (*internal.Writer, erro
 			return nil, err
 		}
 	if len(servers) == 0 {
-		return nil, fmt.Errorf("kafka.NewProducer servers not set")
+		return nil, fmt.Errorf("kafka.producer servers not set")
 	}
 	if len(topic) == 0 {
-		return nil, fmt.Errorf("kafka.NewProducer topic not set")
+		return nil, fmt.Errorf("kafka.producer topic not set")
 	}
 
 	resource, err := producerManager.GetResource(topic, func() (io.Closer, error) {

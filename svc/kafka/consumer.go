@@ -26,16 +26,16 @@ type (
 func Consume(handler ConsumeHandler, opts ...ReaderOptionFunc) {
 	brokers, err := internal.GetServers()
 	if err != nil {
-		log.Fatalf("kafka.Consume brokers empty error: %v", err)
+		log.Fatalf("kafka.consumer brokers empty error: %v", err)
 	}
 	if handler == nil {
-		log.Fatalf("kafka.Consume handler not set")
+		log.Fatalf("kafka.consumer handler not set")
 	}
 	if len(handler.Topics()) == 0 {
-		log.Fatalf("kafka.Consume topics not set")
+		log.Fatalf("kafka.consumer topics not set")
 	}
 	if len(handler.Name()) == 0 {
-		log.Fatalf("kafka.Consume name not set")
+		log.Fatalf("kafka.consumer name not set")
 	}
 
 	serviceGroup := service.NewServiceGroup()
